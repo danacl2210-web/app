@@ -82,11 +82,11 @@ export async function startCall(B, cid, me, other){
   await B.callSet(cid, {offer:{type:offer.type, sdp:offer.sdp}, from:me.id, state:'ringing', at:Date.now()}, true);
   await B.updateChat(cid, {call:{from:me.id, name:me.name, at:Date.now(), active:true}});
   let ring = setInterval(() => sound('ring'), 2500); sound('ring');
-  const giveUp = setTimeout(() => { if(!pc.remoteDescription){ toast(`אין מענה מ${other.name}. אפשר לנסות שוב אחר כך`); w.end(true); } }, 45000);
+  const giveUp = setTimeout(() => { if(!pc.remoteDescription){ toast(`${other.name} לא ענה/תה`); w.end(true); } }, 45000);
   w.unsubs.push(() => { clearInterval(ring); clearTimeout(giveUp); });
   w.unsubs.push(B.onCall(cid, async d => {
     if(!d) return;
-    if(d.state === 'declined'){ toast(`השיחה נדחתה. אפשר לנסות שוב אחר כך`); w.end(false); B.updateChat(cid,{'call.active':false}).catch(()=>{}); return; }
+    if(d.state === 'declined'){ toast(`${other.name} לא יכול/ה לענות עכשיו`); w.end(false); B.updateChat(cid,{'call.active':false}).catch(()=>{}); return; }
     if(d.state === 'ended'){ w.end(false); return; }
     if(d.answer && !pc.currentRemoteDescription){ clearInterval(ring); w.setStatus('מתחבר…');
       await pc.setRemoteDescription(new RTCSessionDescription(d.answer)); }

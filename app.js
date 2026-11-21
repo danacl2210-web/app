@@ -1,7 +1,7 @@
 // חברותא – תלמידים עוזרים לתלמידים
 // מצב ענן (Firebase, משתמשים אמיתיים) או מצב מקומי (localStorage, לבדיקה במכשיר אחד)
-import { $, esc, avatar, toast, sheet, confetti, sound, deco, vibrate, countUp, flyStars, mascot, shareCard, tour } from './ui.js';
-import { ICON, SUBJECTS, LESSONS_PER_SUBJECT, startLesson, startSpeed, startMemory, startBubbles } from './games.js';
+import { $, esc, avatar, toast, sheet, confetti, sound, deco, vibrate, countUp, flyStars } from './ui.js';
+import { ICON, SUBJECTS, LESSONS_PER_SUBJECT, startLesson, startSpeed } from './games.js';
 import { startCall as _startCall, answerCall as _answerCall, declineCall, inCall } from './video.js';
 const countCall = () => { me.calls = (me.calls||0) + 1; B.saveUser(myId, {calls: me.calls}).catch(() => {}); setTimeout(checkBadges, 4000); };
 const startCall = (...a) => { countCall(); B.incChat(a[1], 'callCount').catch(() => {}); return _startCall(...a); };
@@ -52,12 +52,6 @@ async function firebaseBackend(cfg){
     giveStar: uid => F.updateDoc(F.doc(db,'users',uid), {stars:F.increment(1)}),
     incChat: (cid,f) => F.updateDoc(F.doc(db,'chats',cid), {[f]:F.increment(1)}),
     setRating: (uid,d) => F.setDoc(F.doc(db,'ratings',uid), d),
-    addThanks: d => F.addDoc(F.collection(db,'thanks'), d),
-    addReport: d => F.addDoc(F.collection(db,'reports'), d),
-    async listReports(){ const s = await F.getDocs(F.query(F.collection(db,'reports'), F.limit(300))); return s.docs.map(d => ({id:d.id, ...d.data()})).sort((a,b) => b.at - a.at); },
-    resolveReport: id => F.updateDoc(F.doc(db,'reports',id), {status:'done'}),
-    setBan: (uid,v) => F.updateDoc(F.doc(db,'users',uid), {banned:v}),
-    async listThanks(uid){ const s = await F.getDocs(F.query(F.collection(db,'thanks'), F.where('to','==',uid), F.limit(50))); return s.docs.map(d => d.data()).sort((a,b) => b.at - a.at); },
     async listRatings(){ const s = await F.getDocs(F.query(F.collection(db,'ratings'), F.limit(500))); return s.docs.map(d => ({id:d.id, ...d.data()})); },
     async isAdmin(uid){ try { return (await F.getDoc(F.doc(db,'admins',uid))).exists(); } catch { return false; } },
     async listAllChats(){ const s = await F.getDocs(F.query(F.collection(db,'chats'), F.limit(3000))); return s.docs.map(chatOf); },
@@ -123,19 +117,13 @@ function localBackend(){
       const other = S.chats[cid].members.find(x => x !== m.from);
       if(!S.users[other]?.seed) return;
       if(m.type === 'text' && !S.msgs[cid].some(x => x.from === other))
-        setTimeout(() => api.send(cid, {from:other, type:'text', text:'היי! בשמחה 😊 אפשר לקבוע לנו מפגש בכפתור 📅 ולדבר בווידאו.'}), 1400);
+        setTimeout(() => api.send(cid, {from:other, type:'text', text:'היי! בשמחה 😊 קבע/י לנו מפגש בכפתור 📅 ונדבר בווידאו.'}), 1400);
       if(m.type === 'session') setTimeout(async () => { await api.updateChat(cid, {[`sessions.${m.sid}.status`]:'ok'}); api.send(cid, {from:other, type:'text', text:'אישרתי! נתראה 👋'}); }, 1600);
     },
     async updateChat(cid,patch){ mut(s => Object.entries(patch).forEach(([k,v]) => setPath(s.chats[cid], k, v))); },
     async giveStar(uid){ mut(s => s.users[uid].stars = (s.users[uid].stars||0) + 1); },
     async incChat(cid,f){ mut(s => s.chats[cid][f] = (s.chats[cid][f]||0) + 1); },
     async setRating(uid,d){ mut(s => (s.ratings ||= {})[uid] = d); },
-    async addThanks(d){ mut(s => (s.thanks ||= []).push(d)); },
-    async addReport(d){ mut(s => (s.reports ||= []).push({...d, id:'r'+Date.now()})); },
-    async listReports(){ return (S.reports||[]).slice().sort((a,b) => b.at - a.at); },
-    async resolveReport(id){ mut(s => (s.reports||[]).forEach(r => { if(r.id === id) r.status = 'done'; })); },
-    async setBan(uid,v){ mut(s => s.users[uid] && (s.users[uid].banned = v)); },
-    async listThanks(uid){ return (S.thanks||[]).filter(t => t.to === uid).sort((a,b) => b.at - a.at); },
     async listRatings(){ return Object.entries(S.ratings||{}).map(([id,r]) => ({id, ...r})); },
     async isAdmin(){ return true; },
     async listAllChats(){ return Object.entries(S.chats).map(([id,c]) => ({id, ...c})); },
@@ -210,7 +198,7 @@ function renderAuth(mode = 'login'){
   cleanupView();
   const reg = mode === 'register';
   app.innerHTML = `<div class="page center">
-    <img class="logo" src="logo.svg" alt=""><div class="brand">חברותא</div>
+    <div class="rings"><i></i><i></i></div><div class="brand">חברותא</div>
     <p class="sub">תלמידים עוזרים לתלמידים. חינם.</p>
     <form class="card" id="f" novalidate><div class="rainbar"></div>
       <h2 style="font-size:24px">${reg ? 'הרשמה 🎉' : 'ברוך שובך 👋'}</h2>
@@ -221,12 +209,11 @@ function renderAuth(mode = 'login'){
       <button class="btn" id="go">${reg ? 'יצירת חשבון' : 'כניסה'}</button>
       <div class="row between" style="margin-top:8px"><button type="button" class="link" id="sw">${reg ? 'כבר יש לי חשבון' : 'אין לי חשבון – הרשמה'}</button>
         ${reg ? '' : '<button type="button" class="link" id="fp">שכחתי סיסמה</button>'}</div>
-      ${reg ? '<label class="row small" style="gap:8px;font-weight:600;margin-top:10px;align-items:flex-start"><input type="checkbox" id="agree" style="width:auto;margin-top:3px"><span>קראתי ואני מסכים ל<a href="#" id="rl" style="color:var(--sky)">כללי ההתנהגות</a> ול<a href="privacy.html" style="color:var(--sky)">מדיניות הפרטיות</a>. מספר הטלפון שלי לא מוצג לאף אחד.</span></label>' : ''}
+      ${reg ? '<p class="small muted" style="margin:8px 0 0">בהרשמה אתה מסכים ל<a href="privacy.html" style="color:var(--sky)">מדיניות הפרטיות</a>. מספר הטלפון שלך לא מוצג לאף אחד.</p>' : ''}
     </form>
     ${B.mode === 'local' ? '<p class="mode"><span class="badge-local">מצב מקומי</span> הנתונים נשמרים רק במכשיר הזה</p>' : ''}
   </div>`;
   $('#sw').onclick = () => renderAuth(reg ? 'login' : 'register');
-  $('#rl') && ($('#rl').onclick = e => { e.preventDefault(); rulesSheet(); });
   $('#fp') && ($('#fp').onclick = () => sheet(`<h3>שכחת סיסמה?</h3><p class="muted">שלח הודעה לצוות חברותא מהמספר שאיתו נרשמת, ונאפס לך את הסיסמה.</p><button class="btn" data-x>הבנתי</button>`,
     (el,close) => el.querySelector('[data-x]').onclick = close));
   $('#f').onsubmit = async e => {
@@ -235,7 +222,6 @@ function renderAuth(mode = 'login'){
     if(!key) return er.textContent = 'כתוב מספר נייד ישראלי, למשל 050-1234567';
     if(pw.length < 6) return er.textContent = 'הסיסמה צריכה לפחות 6 תווים';
     if(reg && pw !== $('#pw2').value) return er.textContent = 'הסיסמאות לא זהות';
-    if(reg && !$('#agree').checked) return er.textContent = 'צריך לאשר את כללי ההתנהגות';
     const btn = $('#go'); btn.disabled = true;
     try { await (reg ? B.register : B.login)(key, pw); } catch(err){ er.textContent = errMsg(err); btn.disabled = false; }
   };
@@ -273,7 +259,7 @@ function renderOnboard(){
   $('#av').onclick = e => { const c = e.target.closest('[data-a]'); if(!c) return; const k = c.dataset.a; av.has(k) ? av.delete(k) : av.add(k); c.classList.toggle('on'); };
   $('#back') && ($('#back').onclick = () => { tab = 'profile'; renderMain(); });
   $('#sv').onclick = async () => {
-    const name = cleanText($('#nm').value.trim()), grade = $('#gr').value, bio = cleanText($('#bi').value.trim());
+    const name = $('#nm').value.trim(), grade = $('#gr').value, bio = $('#bi').value.trim();
     const need = SUBJECTS.filter(s => subj[s] === 'need'), help = SUBJECTS.filter(s => subj[s] === 'help'), avail = [...av];
     const er = $('#er');
     if(!name) return er.textContent = 'כתוב את השם שלך';
@@ -302,7 +288,7 @@ function renderMain(){
   if(pendingFly){ const n = pendingFly; pendingFly = 0; setTimeout(() => flyStars(Math.min(10, Math.max(3, Math.round(n/2)))), 350); }
 }
 const pills = () => `<div class="row"><span class="pill fire" title="ימים ברצף">🔥 <span data-cu="streak" data-to="${streakOf(me)}">${streakOf(me)}</span></span><span class="pill stars" title="כוכבים">⭐ <span data-cu="stars" data-to="${totalStars(me)}">${totalStars(me)}</span></span></div>`;
-let pendingFly = 0, scrollToPath = false;
+let pendingFly = 0;
 
 function allSessions(){
   return chats.flatMap(c => Object.entries(c.sessions||{}).map(([sid,s]) => ({...s, sid, cid:c.id, other:c.members.find(x => x !== myId), name:c.names?.[c.members.find(x => x !== myId)]})))
@@ -337,24 +323,13 @@ function renderHome(){
   const ses = allSessions().slice(0,3), tc = todayCount(me), pct = Math.min(100, tc / DAILY_GOAL * 100);
   const nextSubj = (me.need||[])[0] || (me.help||[])[0] || SUBJECTS[0];
   app.innerHTML = `<div class="page">
-    <div class="hero">
-      <div class="row between"><div><div class="small" style="opacity:.85">${hi},</div><h2 style="font-size:28px">${esc(me.name)} 👋</h2></div>${pills()}</div>
-      <div class="row" style="margin-top:14px;gap:14px">
-        <div class="ring big2" style="--p:${pct}"><span><b>${tc}/${DAILY_GOAL}</b><small>היום</small></span></div>
-        <div class="grow"><b class="fred big">${tc >= DAILY_GOAL ? 'השלמת את היעד היומי! 🎉' : 'היעד היומי שלך'}</b>
-          <div class="small" style="opacity:.85">${tc >= DAILY_GOAL ? 'אפשר להמשיך לצבור כוכבים' : `עוד ${DAILY_GOAL - tc} שיעורים קצרים ב${ICON[nextSubj]} ${esc(nextSubj)}`}</div>
-          <div class="lvl"><span>רמה ${level(me)}</span><div class="prog"><i style="width:${(totalStars(me) % 50) * 2}%;background:var(--rain)"></i></div></div></div>
-      </div>
-      <button class="btn grn" id="daily" style="margin-top:14px">▶ ${tc ? 'להמשיך לשחק' : 'להתחיל שיעור'}</button>
-    </div>
-    ${me.welcomed ? '' : `<div class="card welcome" id="wel"><div class="row between"><b class="fred big">💌 ברוך הבא לחברותא!</b><button class="link" id="welx" aria-label="סגירה">✕</button></div>
-      <div class="small" style="margin-top:4px">כמה טיפים כדי להתחיל:</div>
-      <ul class="small"><li>🔍 בלשונית <b>חברותא</b> מוצאים מי יעזור לך, או למי אתה יכול לעזור</li><li>📅 בצ׳אט קובעים מפגש בשעה שנוחה לשניכם, ומדברים ב-🎥 וידאו</li><li>🎮 שיעור קצר כל יום שומר על הרצף 🔥 ומביא כוכבים</li></ul>
-      <div class="small muted" style="margin-top:6px">בהצלחה! צוות חברותא 💙</div></div>`}
-    ${questsHtml()}
+    <div class="head"><div><div class="muted small">${hi},</div><h2 style="font-size:26px">${esc(me.name)} 👋</h2></div>${pills()}</div>
     ${installBanner()}
+    <div class="card gamecard" id="daily"><div class="ring" style="--p:${pct}"><span>${tc}/${DAILY_GOAL}</span></div>
+      <div class="grow"><b class="fred big">${tc >= DAILY_GOAL ? 'השלמת את היעד היומי! 🎉' : 'היעד היומי שלך'}</b><div class="small muted">${tc >= DAILY_GOAL ? 'אפשר להמשיך לצבור כוכבים' : `עוד ${DAILY_GOAL - tc} שיעורים קצרים ב${ICON[nextSubj]} ${esc(nextSubj)}`}</div></div>
+      <button class="btn grn sm">שחק</button></div>
     <div class="head"><h3>📅 המפגשים הקרובים</h3>${ses.length ? '' : ''}</div>
-    <div class="list" id="ses">${ses.length ? ses.map(sessionCard).join('') : `<div class="card empty">${mascot('', .6)}<br>עוד אין מפגשים.<br>מצא חברותא, ואז קבעו זמן בכפתור 📅 בצ׳אט.</div>`}</div>
+    <div class="list" id="ses">${ses.length ? ses.map(sessionCard).join('') : '<div class="card empty">עוד אין מפגשים.<br>מצא חברותא, ואז קבעו זמן בכפתור 📅 בצ׳אט.</div>'}</div>
     <div class="card gamecard" id="gofind"><div class="ic" style="background:var(--sky)">🔍</div><div class="grow"><b class="fred big">${(me.need||[]).length ? 'מצא מי יעזור לך' : 'מצא למי לעזור'}</b>
       <div class="small muted">${esc(((me.need||[]).length ? me.need : me.help||[]).slice(0,3).join(' · '))}</div></div><span class="big">←</span></div>
     <div class="card gamecard" id="gospeed"><div class="ic" style="background:var(--yel)">⚡</div><div class="grow"><b class="fred big">אתגר 60 שניות</b><div class="small muted">נכון או לא נכון, הכי מהר שאפשר</div></div><span class="big">←</span></div>
@@ -362,12 +337,9 @@ function renderHome(){
     ${!me.rated && (Object.keys(me.progress||{}).length || chats.length) ? `<div class="card gamecard" id="rate" style="background:linear-gradient(120deg,#3b2f0e,#1d2150)"><div class="ic" style="background:var(--yel)">💛</div><div class="grow"><b class="fred big">איך חברותא בשבילך?</b><div class="small muted">דרג אותנו בשתי שניות</div></div><span class="stars big">★★★★★</span></div>` : ''}
   </div>`;
   $('#rate') && ($('#rate').onclick = rateSheet);
-  $('#chest').onclick = openChest;
-  $('#welx') && ($('#welx').onclick = () => { me.welcomed = true; B.saveUser(myId, {welcomed:true}).catch(() => {}); $('#wel')?.remove(); });
   B.listUsers().then(us => { const on = us.filter(u => u.id !== myId && u.name && online(u)).slice(0,8), el = $('#onl'); if(!el || !on.length) return;
     el.innerHTML = `<div class="card"><b class="small" style="color:var(--grn)">● מחוברים עכשיו</b><div class="row" style="margin-top:8px;overflow-x:auto;gap:12px">${on.map(u => `<div style="text-align:center;flex:none">${avatarOn(u,44)}<div class="small">${esc(u.name)}</div></div>`).join('')}</div></div>`; }).catch(() => {});
-  $('#daily').onclick = () => { pathSubject = nextSubj; const d = me.progress?.[nextSubj] || 0;
-    if(d < LESSONS_PER_SUBJECT){ tab = 'practice'; renderMain(); lesson(nextSubj, true); } else { tab = 'practice'; scrollToPath = true; renderMain(); } };
+  $('#daily').onclick = () => { pathSubject = nextSubj; tab = 'practice'; renderMain(); };
   $('#gofind').onclick = () => { findMode = (me.need||[]).length ? 'need' : 'help'; tab = 'find'; renderMain(); };
   $('#gospeed').onclick = speed;
   bindSessions($('#ses'));
@@ -392,7 +364,7 @@ async function renderFind(){
   let users; try { users = await B.listUsers(); } catch { $('#res') && ($('#res').innerHTML = '<div class="card empty">לא הצלחנו לטעון. בדוק את החיבור לאינטרנט.</div>'); return; }
   if(!$('#res') || tab !== 'find') return;
   const want = findSubject ? [findSubject] : mine, field = findMode === 'need' ? 'help' : 'need', myAv = new Set(me.avail||[]);
-  const res = users.filter(u => u.id !== myId && u.name && !u.banned && !isBlocked(u.id) && !(u.blocked||[]).includes(myId)).map(u => {
+  const res = users.filter(u => u.id !== myId && u.name).map(u => {
     const match = (u[field]||[]).filter(s => want.includes(s));
     const back = findMode === 'need' ? (u.need||[]).filter(s => (me.help||[]).includes(s)) : [];
     const common = (u.avail||[]).filter(a => myAv.has(a)).length;
@@ -403,9 +375,9 @@ async function renderFind(){
     $('#sh').onclick = share; return;
   }
   const onl = users.filter(u => u.id !== myId && u.name && online(u)).length;
-  $('#res').insertAdjacentHTML('beforebegin', onl ? `<div class="small" style="color:var(--grn);font-weight:700">● ${onl} באפליקציה עכשיו</div>` : '');
+  $('#res').insertAdjacentHTML('beforebegin', onl ? `<div class="small" style="color:var(--grn);font-weight:700">● ${onl} ${onl === 1 ? 'תלמיד/ה מחובר/ת' : 'תלמידים מחוברים'} עכשיו</div>` : '');
   $('#res').innerHTML = res.sort((a,b) => online(b.u) - online(a.u) || b.score - a.score).map(({u,match,back,common}) => `<div class="card item" data-u="${esc(u.id)}">${avatarOn(u)}
-    <div class="grow"><div class="row between"><b>${esc(u.name)} <span class="muted small">· ${esc(u.grade||'')}</span></b><span class="score">${online(u) ? '<span style="color:var(--grn)">🟢 עכשיו · </span>' : ''}⭐ ${totalStars(u)}</span></div>
+    <div class="grow"><div class="row between"><b>${esc(u.name)} <span class="muted small">· ${esc(u.grade||'')}</span></b><span class="score">${online(u) ? '<span style="color:var(--grn)">פעיל/ה · </span>' : ''}⭐ ${totalStars(u)}</span></div>
       ${u.bio ? `<div class="small muted ellipsis">${esc(u.bio)}</div>` : ''}
       <div>${match.map(s => `<span class="tag ${findMode==='need'?'help':'need'}">${ICON[s]} ${esc(s)}</span>`).join('')}${back.length ? `<span class="tag need">ואתה עוזר ב${esc(back[0])}</span>` : ''}${common ? `<span class="tag sky">🕐 ${common} זמנים משותפים</span>` : ''}</div>
     </div></div>`).join('');
@@ -414,20 +386,15 @@ async function renderFind(){
 
 function requestSheet(u, match){
   const ask = findMode === 'need';
-  const def = s => ask ? `היי ${u.name}! ראיתי שאפשר לקבל ממך עזרה ב${s}. אשמח מאוד 🙏` : `היי ${u.name}! ראיתי שצריך עזרה ב${s}. אשמח לעזור 😊`;
+  const def = s => ask ? `היי ${u.name}! ראיתי שאת/ה עוזר/ת ב${s}. אשמח לעזרה 🙏` : `היי ${u.name}! ראיתי שצריך עזרה ב${s}. אשמח לעזור 😊`;
   sheet(`<div class="row" style="margin-bottom:10px">${avatar(u.id,u.name,58)}<div><h3>${esc(u.name)}</h3><div class="muted small">כיתה ${esc(u.grade||'')} · ⭐ ${totalStars(u)} · רמה ${level(u)} · 🔥 ${streakOf(u)}</div></div></div>
     ${u.bio ? `<p class="muted" style="margin:6px 0">${esc(u.bio)}</p>` : ''}
-    <div id="uthx"></div>
     <label for="rs">מקצוע</label><select id="rs">${match.map(s => `<option>${esc(s)}</option>`).join('')}</select>
     <label for="rt">הודעה ראשונה</label><textarea id="rt" rows="3">${esc(def(match[0]))}</textarea>
-    <div style="height:14px"></div><button class="btn" id="rg">${ask ? '🙋 בקשת עזרה' : '🤝 הצעת עזרה'}</button>
-    <div class="row between" style="margin-top:8px"><button class="link small" id="rrules">🛡️ כללי ההתנהגות</button><button class="link small" id="rrep" style="color:var(--pink)">🚩 דיווח</button></div>`, (el, close) => {
-      el.querySelector('#rrules').onclick = () => { close(); rulesSheet(); };
-      el.querySelector('#rrep').onclick = () => { close(); reportSheet({id:u.id, name:u.name}); };
+    <div style="height:14px"></div><button class="btn" id="rg">${ask ? '🙋 בקשת עזרה' : '🤝 הצעת עזרה'}</button>`, (el, close) => {
       const rs = el.querySelector('#rs'), rt = el.querySelector('#rt'); rs.onchange = () => rt.value = def(rs.value);
-      B.listThanks(u.id).then(ts => { const box = el.querySelector('#uthx'); if(box && ts.length) box.innerHTML = `<b class="small">💛 מה אומרים על ${esc(u.name)}</b>` + ts.slice(0,3).map(t => `<div class="thx">"${esc(t.text)}" <span class="muted small">· ${esc(t.fromName||'')}</span></div>`).join(''); }).catch(() => {});
       el.querySelector('#rg').onclick = async e => { const text = rt.value.trim(); if(!text) return; e.target.disabled = true;
-        try { const cid = await B.openChat(myId, u.id, {[myId]:me.name, [u.id]:u.name}, rs.value); await B.send(cid, {from:myId, type:'text', text}); markDay('msgDay'); close(); renderChat(cid); }
+        try { const cid = await B.openChat(myId, u.id, {[myId]:me.name, [u.id]:u.name}, rs.value); await B.send(cid, {from:myId, type:'text', text}); close(); renderChat(cid); }
         catch(err){ e.target.disabled = false; toast(errMsg(err)); } };
     });
 }
@@ -442,33 +409,28 @@ function renderPractice(){
   app.innerHTML = `<div class="page">
     <div class="head"><h2 style="font-size:26px">תרגול 🎮</h2>${pills()}</div>
     <div class="card gamecard"><div class="ring" style="--p:${Math.min(100,tc/DAILY_GOAL*100)}"><span>${tc}/${DAILY_GOAL}</span></div>
-      <div class="grow"><b class="fred">יעד יומי</b><div class="small muted">${tc >= DAILY_GOAL ? 'השלמת היום! 🔥 הרצף נשמר' : 'שיעור אחד ביום שומר על הרצף 🔥'}</div>${weekStrip()}</div></div>
-    <div class="head"><h3>🕹️ ארקייד</h3><span class="small muted">כל משחק = כוכבים</span></div>
-    <div class="arcade">
-      <button class="arc" id="gospeed" style="--a:#ffd65c;--b:#ff9f5c"><span class="ai">⚡</span><b>60 שניות</b><small>נכון או לא נכון</small>${me.best?.speed ? `<em>שיא ${me.best.speed}</em>` : ''}</button>
-      <button class="arc" id="gobub" style="--a:#5cc8ff;--b:#a98bff"><span class="ai">🫧</span><b>בועות</b><small>פוצץ את התשובה</small>${me.best?.bubbles ? `<em>שיא ${me.best.bubbles}</em>` : ''}</button>
-      <button class="arc" id="gomem" style="--a:#ff6b8a;--b:#a98bff"><span class="ai">🧠</span><b>זיכרון</b><small>מצא את הזוגות</small>${me.best?.memory ? `<em>שיא ⭐${me.best.memory}</em>` : ''}</button>
-      <button class="arc" id="golb" style="--a:#5ee0a0;--b:#5cc8ff"><span class="ai">🏅</span><b>אלופים</b><small>טבלת הכוכבים</small></button>
-    </div>
-    <div class="head" style="margin-top:4px"><h3>🗺️ המסלול שלי</h3></div>
+      <div class="grow"><b class="fred">יעד יומי</b><div class="small muted">${tc >= DAILY_GOAL ? 'השלמת היום! 🔥 הרצף נשמר' : 'שיעור אחד ביום שומר על הרצף 🔥'}</div></div></div>
     <div class="chips" id="ps" style="flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px">${subs.map(s => `<span class="chip ${s===pathSubject?'on':''}" style="flex:none" data-s="${esc(s)}">${ICON[s]} ${esc(s)}</span>`).join('')}</div>
     <div class="card" style="text-align:center;background:linear-gradient(120deg,#1f6b4f,#1d2150)"><b class="fred big">${ICON[pathSubject]} ${esc(pathSubject)}</b>
       <div class="small">שיעור ${Math.min(done+1, LESSONS_PER_SUBJECT)} מתוך ${LESSONS_PER_SUBJECT}${done >= LESSONS_PER_SUBJECT ? ' · סיימת את המסלול! 🏆' : ''}</div></div>
     <div class="path" id="path">${Array.from({length:LESSONS_PER_SUBJECT}, (_,i) => {
       const st = i < done ? 'done' : i === done ? 'cur' : 'lock', ic = i === LESSONS_PER_SUBJECT-1 ? '🏆' : i % 3 === 2 ? '🎁' : st === 'done' ? '✓' : '⭐';
       return `<button class="node ${st}" data-i="${i}" style="left:${off[i%8]}px" aria-label="שיעור ${i+1}">${ic}</button>`; }).join('')}</div>
+    <h3>משחקים נוספים</h3>
+    <div class="card gamecard" id="gospeed"><div class="ic" style="background:var(--yel)">⚡</div><div class="grow"><b class="fred big">אתגר 60 שניות</b><div class="small muted">3 נכונות ברצף = ניקוד כפול</div></div><span class="big">←</span></div>
+    <div class="card gamecard" id="golb"><div class="ic" style="background:var(--vio)">🏅</div><div class="grow"><b class="fred big">טבלת האלופים</b><div class="small muted">מי צבר הכי הרבה כוכבים</div></div><span class="big">←</span></div>
   </div>`;
   $('#ps').onclick = e => { const c = e.target.closest('[data-s]'); if(!c) return; pathSubject = c.dataset.s; renderMain(); };
   $('#path').onclick = e => { const n = e.target.closest('.node'); if(!n) return; const i = +n.dataset.i;
     if(i > done) return toast('🔒 קודם צריך לסיים את השיעור הקודם');
     lesson(pathSubject, i >= done); };
-  $('#gospeed').onclick = speed; $('#golb').onclick = leaderboard; $('#gobub').onclick = bubbles; $('#gomem').onclick = memory;
-  if(scrollToPath){ scrollToPath = false; setTimeout(() => $('.node.cur')?.scrollIntoView({block:'center', behavior:'smooth'}), 120); }
+  $('#gospeed').onclick = speed; $('#golb').onclick = leaderboard;
+  setTimeout(() => $('.node.cur')?.scrollIntoView({block:'center', behavior:'smooth'}), 50);
 }
 
 async function reward(stars, advanceSubject, perfect){
   const t = today(), wasToday = me.lastDay === t;
-  const d = {gameStars:(me.gameStars||0) + stars, todayDay:t, todayCount:todayCount(me) + 1, lastDay:t, days:[...new Set([...(me.days||[]), t])].slice(-14),
+  const d = {gameStars:(me.gameStars||0) + stars, todayDay:t, todayCount:todayCount(me) + 1, lastDay:t,
     streak: wasToday ? (me.streak||1) : (me.lastDay === yesterday() ? (me.streak||0) + 1 : 1)};
   if(perfect) d.perfects = (me.perfects||0) + 1;
   if(advanceSubject) d.progress = {...(me.progress||{}), [advanceSubject]: Math.min(LESSONS_PER_SUBJECT, (me.progress?.[advanceSubject]||0) + 1)};
@@ -484,23 +446,17 @@ function lesson(subject, advance){
   // כשהשיעור נסגר – מרעננים את המסך
   const obs = new MutationObserver(() => { if(!$('.lesson')){ obs.disconnect(); renderMain(); } }); obs.observe(document.body, {childList:true});
 }
-function saveBest(k, v){
-  if(!(v > (me.best?.[k] || 0))) return;
-  const had = me.best?.[k]; me.best = {...(me.best||{}), [k]: v}; B.saveUser(myId, {best: me.best}).catch(() => {});
-  if(had) setTimeout(() => toast(`🏆 שיא אישי חדש: ${v}!`), 900);
+function speed(){
+  startSpeed({subjects: practiceSubjects().slice(0,4), onFinish: r => r.score > 0 && reward(r.score, null)});
+  const obs = new MutationObserver(() => { if(!$('.lesson')){ obs.disconnect(); renderMain(); } }); obs.observe(document.body, {childList:true});
 }
-function whenClosed(){ const obs = new MutationObserver(() => { if(!$('.lesson')){ obs.disconnect(); renderMain(); } }); obs.observe(document.body, {childList:true}); }
-function speed(){ startSpeed({subjects: practiceSubjects().slice(0,4), onFinish: r => { saveBest('speed', r.score); markDay('arcDay'); r.score > 0 && reward(r.score, null); }}); whenClosed(); }
-function bubbles(){ startBubbles({subjects: practiceSubjects().slice(0,4), onFinish: r => { saveBest('bubbles', r.score); markDay('arcDay'); r.score > 0 && reward(r.score, null); }}); whenClosed(); }
-function memory(){ startMemory({subjects: practiceSubjects().slice(0,3), onFinish: r => { saveBest('memory', r.stars); markDay('arcDay'); reward(r.stars, null); }}); whenClosed(); }
 async function leaderboard(){
   const close = sheet('<h3>🏅 טבלת האלופים</h3><div id="lb"><div class="spin"></div></div>');
   let users = []; try { users = await B.listUsers(); } catch {}
-  const top = users.filter(u => u.name && !u.banned).sort((a,b) => totalStars(b) - totalStars(a)).slice(0,15);
+  const top = users.filter(u => u.name).sort((a,b) => totalStars(b) - totalStars(a)).slice(0,15);
   const el = $('#lb'); if(!el) return;
-  const pod = [top[1], top[0], top[2]].map((u,k) => u ? `<div class="p${[2,1,3][k]}">${k === 1 ? '<div style="font-size:26px">👑</div>' : ''}${avatar(u.id,u.name,[48,60,44][k])}<div class="small" style="font-weight:700;margin-top:4px">${esc(u.name)}</div><div class="score small">⭐ ${totalStars(u)}</div><div class="blk">${[2,1,3][k]}</div></div>` : '<div></div>').join('');
-  el.innerHTML = `<div class="podium">${pod}</div><div class="list" style="margin-top:12px">${top.slice(3).map((u,j) => { const i = j + 3; return `<div class="row" style="padding:6px 4px;${u.id===myId?'background:#123150;border-radius:12px':''}">
-    <b class="fred" style="width:28px;text-align:center">${['🥇','🥈','🥉'][i] || i+1}</b>${avatar(u.id,u.name,38)}<b class="grow">${esc(u.name)}${u.id===myId?' (אתה)':''}</b><span class="score">⭐ ${totalStars(u)}</span></div>`; }).join('')}</div>
+  el.innerHTML = `<div class="list" style="margin-top:12px">${top.map((u,i) => `<div class="row" style="padding:6px 4px;${u.id===myId?'background:#123150;border-radius:12px':''}">
+    <b class="fred" style="width:28px;text-align:center">${['🥇','🥈','🥉'][i] || i+1}</b>${avatar(u.id,u.name,38)}<b class="grow">${esc(u.name)}${u.id===myId?' (אתה)':''}</b><span class="score">⭐ ${totalStars(u)}</span></div>`).join('')}</div>
     <div style="height:12px"></div><button class="btn alt" id="lbx">סגירה</button>`;
   $('#lbx').onclick = close;
 }
@@ -508,13 +464,13 @@ async function leaderboard(){
 /* =============== chats =============== */
 
 function renderChats(){
-  const list = chats.filter(c => !isBlocked(c.members.find(x => x !== myId))).sort((a,b) => (b.updatedAt||0) - (a.updatedAt||0));
+  const list = chats.slice().sort((a,b) => (b.updatedAt||0) - (a.updatedAt||0));
   app.innerHTML = `<div class="page"><div class="head"><h2 style="font-size:26px">צ׳אטים</h2>${pills()}</div>
-    <div class="list">${list.length ? list.map(c => { const o = c.members.find(x => x !== myId), nm = c.names?.[o] || 'חברותא';
+    <div class="list">${list.length ? list.map(c => { const o = c.members.find(x => x !== myId), nm = c.names?.[o] || 'תלמיד/ה';
       return `<div class="card item" data-c="${esc(c.id)}">${avatar(o,nm)}<div class="grow">
         <div class="row between"><b>${esc(nm)}</b><span class="small muted">${c.updatedAt ? timeStr(c.updatedAt) : ''}</span></div>
         <div class="small ${isUnread(c)?'':'muted'} ellipsis">${isUnread(c)?'<b style="color:var(--pink)">●</b> ':''}${ICON[c.subject]||''} ${esc(c.subject)} · ${esc(c.lastText||'')}</div></div></div>`; }).join('')
-      : `<div class="card empty">${mascot('', .7)}<br>עוד אין צ׳אטים.<br>מצא חברותא בלשונית 🔍</div>`}</div></div>`;
+      : '<div class="card empty">עוד אין צ׳אטים.<br>מצא חברותא בלשונית 🔍</div>'}</div></div>`;
   app.querySelector('.list').onclick = e => { const c = e.target.closest('[data-c]'); if(c) renderChat(c.dataset.c); };
 }
 
@@ -525,10 +481,8 @@ function renderChat(cid){
     <div class="chathead"><button class="link" id="bk" aria-label="חזרה" style="font-size:22px">→</button><div id="ha"></div>
       <div class="grow"><b id="hn"></b><div class="small muted" id="hs"></div></div>
       <button class="iconbtn vid" id="vc" aria-label="שיחת וידאו" title="שיחת וידאו">🎥</button>
-      <button class="iconbtn" id="star" aria-label="תן כוכב" title="תודה – תן כוכב">⭐</button>
-      <button class="iconbtn" id="more" aria-label="עוד אפשרויות" title="דיווח, חסימה וכללים">⋯</button></div>
+      <button class="iconbtn" id="star" aria-label="תן כוכב" title="תודה – תן כוכב">⭐</button></div>
     <div class="msgs" id="ms"></div>
-    <div class="quick" id="qk">${['היי! 👋','מתי נוח לך?','תודה רבה! 🙏','יש לי שאלה 🤔','בוא נדבר בווידאו 🎥','הבנתי! 💡'].map(q => `<button>${q}</button>`).join('')}</div>
     <div class="composer"><button class="iconbtn" id="cal" aria-label="קביעת מפגש" title="קביעת מפגש">📅</button>
       <textarea id="tx" placeholder="כתוב הודעה…" rows="1" aria-label="הודעה"></textarea>
       <button class="iconbtn send" id="sd" aria-label="שליחה">➤</button></div></div>`;
@@ -536,7 +490,6 @@ function renderChat(cid){
   const otherObj = () => ({id:other(), name:chat?.names?.[other()] || ''});
   const markRead = () => chat && isUnread(chat) && B.updateChat(cid, {['read.'+myId]: Date.now()}).catch(() => {});
   const drawHead = () => { if(!chat) return; const o = otherObj();
-    if(isBlocked(o.id) && !$('#blk')) $('.chathead').insertAdjacentHTML('afterend', `<div id="blk" class="sys" style="margin:8px auto">🚫 חסמת את ${esc(o.name)}. <button class="link" id="ublk">ביטול חסימה</button></div>`), $('#ublk').onclick = async () => { await toggleBlock(o.id, o.name); renderChat(cid); };
     $('#ha').innerHTML = avatar(o.id,o.name,38); $('#hn').textContent = o.name; $('#hs').textContent = `${ICON[chat.subject]||''} ${chat.subject||''}`;
     $('#star').style.opacity = chat.starred?.[myId] ? .35 : 1; };
   const sessHtml = m => {
@@ -563,36 +516,24 @@ function renderChat(cid){
     if(ic){ const s = chat.sessions[ic.dataset.ics]; addToCalendar({...s, sid:ic.dataset.ics, name:otherObj().name}); }
   };
   $('#bk').onclick = () => { tab = 'chats'; renderMain(); };
-  $('#more').onclick = () => chat && chatMenu(cid, otherObj());
   $('#vc').onclick = () => chat && startCall(B, cid, me, otherObj());
   const tx = $('#tx');
-  const send = async () => { const raw = tx.value.trim(); if(!raw) return; tx.value = ''; tx.style.height = '';
-    if(chat && isBlocked(otherObj().id)) return toast('חסמת את המשתמש הזה. אפשר לבטל ב-⋯');
-    const t = cleanText(raw).replace(/(\+972[-\s]?|0)5\d[-\s]?\d{3}[-\s]?\d{4}/g, '📵'); if(t !== raw) toast('🛡️ חלק מההודעה הוסתר. בחברותא מדברים בכבוד ושומרים על פרטיות');
-    if(hasPersonal(raw)) setTimeout(() => toast('🔒 שומרים על פרטיות: עדיף לא לשתף טלפון, כתובת או רשתות'), t !== raw ? 2700 : 0);
-    try { await B.send(cid, {from:myId, type:'text', text:t}); markDay('msgDay'); } catch(e){ tx.value = t; toast(errMsg(e)); } };
+  const send = async () => { const t = tx.value.trim(); if(!t) return; tx.value = ''; tx.style.height = '';
+    try { await B.send(cid, {from:myId, type:'text', text:t}); } catch(e){ tx.value = t; toast(errMsg(e)); } };
   $('#sd').onclick = send;
-  $('#qk').onclick = e => { const b = e.target.closest('button'); if(!b) return; tx.value = b.textContent; send(); vibrate(8); };
   tx.onkeydown = e => { if(e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer:coarse)').matches){ e.preventDefault(); send(); } };
   tx.oninput = () => { tx.style.height = 'auto'; tx.style.height = Math.min(tx.scrollHeight,120) + 'px'; };
-  $('#star').onclick = () => {
+  $('#star').onclick = async () => {
     if(!chat) return; if(chat.starred?.[myId]) return toast('כבר נתת כוכב בצ׳אט הזה');
     const o = otherObj();
-    sheet(`<div style="text-align:center"><div style="font-size:54px">⭐</div><h3>תודה ל${esc(o.name)}</h3><p class="small muted" style="margin:4px 0">הכוכב והמילים שלך יופיעו בפרופיל של ${esc(o.name)}</p></div>
-      <div class="chips" id="tq" style="justify-content:center;margin:10px 0">${['הסברת מעולה! 💡','סבלנות של מלאך 😇','סוף סוף הבנתי! 🙌','עזרת לי לפני המבחן 💪'].map(t => `<span class="chip">${t}</span>`).join('')}</div>
-      <textarea id="tn" rows="2" maxlength="140" placeholder="מילה טובה (לא חובה)"></textarea><div style="height:12px"></div><button class="btn yel" id="tg">⭐ לתת כוכב</button>`, (el, close) => {
-        el.querySelector('#tq').onclick = e => { const c = e.target.closest('.chip'); if(c) el.querySelector('#tn').value = c.textContent; };
-        el.querySelector('#tg').onclick = async e => { e.target.disabled = true; const note = el.querySelector('#tn').value.trim();
-          try { await B.giveStar(o.id); await B.updateChat(cid, {['starred.'+myId]: true});
-            if(note) B.addThanks({to:o.id, from:myId, fromName:me.name, text:note, subject:chat.subject||'', at:Date.now()}).catch(() => {});
-            await B.send(cid, {from:myId, type:'star', text:`כוכב מ${me.name} ל${o.name}${note ? `: "${note}"` : ' על העזרה!'}`}); close(); confetti(); sound('win'); }
-          catch(err){ e.target.disabled = false; toast(errMsg(err)); } };
-      });
+    try { await B.giveStar(o.id); await B.updateChat(cid, {['starred.'+myId]: true});
+      await B.send(cid, {from:myId, type:'star', text:`${me.name} נתן/ה כוכב ל${o.name} על העזרה!`}); confetti(); sound('win'); }
+    catch(e){ toast(errMsg(e)); }
   };
   $('#cal').onclick = async () => { if(!chat) return; let ou = null; try { ou = await B.getUser(other()); } catch {} scheduleSheet(cid, chat, ou); };
 }
 
-// בחירת זמן מראש: רק שעות שבהן החברותא פנויים (ומסומן מה מתאים לשניכם)
+// בחירת זמן מראש: רק שעות שבהן החברותא פנוי/ה (ומסומן מה מתאים לשניכם)
 function scheduleSheet(cid, chat, ou){
   const theirs = new Set(ou?.avail||[]), mine = new Set(me.avail||[]), now = Date.now();
   const hoursFor = d => { const day = d.getDay(); const out = [];
@@ -603,7 +544,7 @@ function scheduleSheet(cid, chat, ou){
   let di = 0, pick = null, place = 'video';
   const name = chat.names?.[chat.members.find(x => x !== myId)] || '';
   sheet(`<h3>📅 קביעת מפגש עם ${esc(name)}</h3>
-    <p class="small muted" style="margin:4px 0 0">${theirs.size ? `מוצגות רק השעות הפנויות של ${esc(name)}. ⭐ = מתאים לשניכם` : `בפרופיל של ${esc(name)} עוד אין זמנים פנויים, אז מוצגות כל השעות`}</p>
+    <p class="small muted" style="margin:4px 0 0">${theirs.size ? `מוצגות רק השעות ש${esc(name)} פנוי/ה בהן. ⭐ = מתאים לשניכם` : `${esc(name)} עוד לא סימן/ה זמנים פנויים, אז מוצגות כל השעות`}</p>
     <label>יום</label><div class="chips" id="dd" style="flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px"></div>
     <label>שעה</label><div class="chips" id="hh"></div>
     <label>איפה</label><div class="seg" id="sp">${PLACES.map(([k,n]) => `<button data-p="${k}" class="${k===place?'on':''}">${n}</button>`).join('')}</div>
@@ -631,7 +572,7 @@ let firstTab = ['home','find','practice','chats','profile'].find(t => t === new 
 const seenCalls = new Set();
 let ringEl = null, ringTimer = null;
 function checkIncoming(){
-  const c = chats.find(c => c.call?.active && c.call.from !== myId && !isBlocked(c.call.from) && Date.now() - c.call.at < 60000);
+  const c = chats.find(c => c.call?.active && c.call.from !== myId && Date.now() - c.call.at < 60000);
   if(!c || inCall()){ if(ringEl && (!c || inCall())){ ringEl.remove(); ringEl = null; clearInterval(ringTimer); } return; }
   const key = c.id + c.call.at; if(seenCalls.has(key) || ringEl) return; seenCalls.add(key);
   const o = {id:c.call.from, name:c.names?.[c.call.from] || c.call.name || ''};
@@ -664,23 +605,18 @@ function renderProfile(){
     <div class="card"><b>צריך עזרה ב:</b><div>${(me.need||[]).map(s => `<span class="tag need">${ICON[s]} ${esc(s)}</span>`).join('') || '<span class="muted small">—</span>'}</div>
       <b style="display:block;margin-top:8px">יכול לעזור ב:</b><div>${(me.help||[]).map(s => `<span class="tag help">${ICON[s]} ${esc(s)}</span>`).join('') || '<span class="muted small">—</span>'}</div>
       <b style="display:block;margin-top:8px">🕐 זמנים פנויים:</b><div class="small muted">${avTxt.length ? esc(avTxt.join(' · ')) : 'לא סימנת'}</div></div>
-    <div id="mythx"></div>
     <div class="card"><div class="row between"><b class="fred big">🏅 התגים שלי</b><span class="small muted">${(me.badges||[]).length}/${BADGES.length}</span></div>${badgesHtml()}</div>
     <div class="card gamecard" id="rate"><div class="ic" style="background:var(--yel)">⭐</div><div class="grow"><b class="fred big">${me.rated ? `דירגת ${'★'.repeat(me.rated)}` : 'דרג את חברותא'}</b><div class="small muted">ולראות מה אחרים אומרים</div></div><span class="big">←</span></div>
     ${isAdm ? '<button class="btn yel" id="adm">📊 לוח ניהול</button>' : ''}
-    ${(me.help||[]).length ? `<div class="card gamecard" id="cert"><div class="ic" style="background:var(--grn)">📜</div><div class="grow"><b class="fred big">אישור שעות עזרה</b><div class="small muted">${helpedSessions().length} מפגשי עזרה · למחויבות אישית</div></div><span class="big">←</span></div>` : ''}
     <button class="btn alt" id="ed">✏️ עריכת פרופיל וזמנים</button>
     ${isStandalone() ? '' : '<button class="btn" id="in">📲 התקנת האפליקציה</button>'}
     <button class="btn alt" id="sh">💫 שיתוף עם חברים</button>
     <button class="btn alt" id="lo">יציאה</button>
-    <div class="row between"><a class="link small" href="privacy.html">מדיניות פרטיות</a><button class="link small" id="prules">🛡️ כללי ההתנהגות</button><button class="link small" id="del" style="color:var(--pink)">מחיקת החשבון</button></div>
+    <div class="row between"><a class="link small" href="privacy.html">מדיניות פרטיות</a><button class="link small" id="del" style="color:var(--pink)">מחיקת החשבון</button></div>
     ${B.mode === 'local' ? '<p class="mode"><span class="badge-local">מצב מקומי</span> הנתונים נשמרים רק במכשיר הזה</p>' : ''}
   </div>`;
-  $('#rate').onclick = () => me.rated ? reviewsSheet() : rateSheet();
-  B.listThanks(myId).then(ts => { const box = $('#mythx'); if(box && ts.length) box.innerHTML = `<div class="card"><b class="fred big">💛 מה אומרים עליי</b>${ts.slice(0,5).map(t => `<div class="thx">"${esc(t.text)}" <span class="muted small">· ${esc(t.fromName||'')}${t.subject ? ' · ' + esc(t.subject) : ''}</span></div>`).join('')}</div>`; }).catch(() => {}); $('#adm') && ($('#adm').onclick = renderAdmin);
+  $('#rate').onclick = () => me.rated ? reviewsSheet() : rateSheet(); $('#adm') && ($('#adm').onclick = renderAdmin);
   app.querySelectorAll('.bdg').forEach(b => b.onclick = () => toast(b.title));
-  $('#prules').onclick = rulesSheet;
-  $('#cert') && ($('#cert').onclick = certificate);
   $('#ed').onclick = renderOnboard; $('#in') && ($('#in').onclick = doInstall); $('#sh').onclick = share; $('#lo').onclick = () => B.logout();
   $('#del').onclick = () => sheet(`<h3>למחוק את החשבון?</h3><p class="muted">הפרופיל, הכוכבים וההתקדמות יימחקו לתמיד. אי אפשר לבטל.</p>
     <button class="btn pink" id="yes">כן, למחוק</button><div style="height:10px"></div><button class="btn alt" id="nope">ביטול</button>`, (el, close) => {
@@ -703,7 +639,7 @@ function heartbeat(){
   clearInterval(beatT); beat(); beatT = setInterval(beat, 60000);
   if(!heartbeat.bound){ heartbeat.bound = true; document.addEventListener('visibilitychange', beat); }
 }
-const avatarOn = (u, size=46) => `<span style="position:relative;display:inline-block;flex:none">${avatar(u.id,u.name,size)}${online(u) ? '<i class="ondot" title="באפליקציה עכשיו"></i>' : ''}</span>`;
+const avatarOn = (u, size=46) => `<span style="position:relative;display:inline-block;flex:none">${avatar(u.id,u.name,size)}${online(u) ? '<i class="ondot" title="מחובר/ת עכשיו"></i>' : ''}</span>`;
 
 /* =============== badges =============== */
 
@@ -715,8 +651,8 @@ const BADGES = [
   ['allround','🧠','רב-תחומי','שיעורים ב-3 מקצועות', s => s.subjects >= 3],
   ['meet','📅','מפגש ראשון','מפגש שאושר', s => s.sessions >= 1],
   ['video','🎥','פנים מול פנים','שיחת וידאו ראשונה', s => s.calls >= 1],
-  ['helper','🤝','יד עוזרת','קיבלת כוכב על עזרה', s => s.helpStars >= 1],
-  ['mentor','🦸','גיבור העזרה','10 כוכבי עזרה', s => s.helpStars >= 10],
+  ['helper','🤝','עוזר/ת','קיבלת כוכב על עזרה', s => s.helpStars >= 1],
+  ['mentor','🦸','מנטור/ית','10 כוכבי עזרה', s => s.helpStars >= 10],
   ['stars100','🌟','100 כוכבים','צברת 100 כוכבים', s => s.total >= 100],
   ['stars500','👑','500 כוכבים','צברת 500 כוכבים', s => s.total >= 500],
   ['critic','💬','קול התלמידים','דירגת את חברותא', s => s.rated],
@@ -739,10 +675,10 @@ function nextBadge(){
   const b = badgeQueue[0]; if(!b) return;
   if($('.lesson') || $('.call') || $('.chatwrap') || $('.sheet-bg')) return setTimeout(nextBadge, 1500);
   const el = document.createElement('div'); el.className = 'badgepop';
-  el.innerHTML = `<div class="bp"><div class="small fred" style="color:var(--yel);letter-spacing:2px">תג חדש!</div><div class="bpi">${b[1]}</div><h2>${esc(b[2])}</h2><div class="muted">${esc(b[3])}</div><button class="btn yel" style="margin-top:16px">יש! 🎉</button><button class="link" data-share style="margin-top:8px">📤 שתף</button></div>`;
+  el.innerHTML = `<div class="bp"><div class="small fred" style="color:var(--yel);letter-spacing:2px">תג חדש!</div><div class="bpi">${b[1]}</div><h2>${esc(b[2])}</h2><div class="muted">${esc(b[3])}</div><button class="btn yel" style="margin-top:16px">יש! 🎉</button></div>`;
   document.body.appendChild(el); confetti(); sound('win'); vibrate([30,50,30]);
   const close = () => { el.remove(); badgeQueue.shift(); setTimeout(nextBadge, 400); };
-  el.onclick = e => { if(e.target.closest('[data-share]')) return shareCard({emoji:b[1], title:`תג חדש: ${b[2]}`, sub:b[3], name:me.name}); close(); };
+  el.onclick = close;
 }
 const badgesHtml = () => { const have = new Set(me.badges||[]);
   return `<div class="badges">${BADGES.map(b => `<div class="bdg ${have.has(b[0])?'':'off'}" title="${esc(b[3])}"><span>${b[1]}</span><small>${esc(b[2])}</small></div>`).join('')}</div>`; };
@@ -787,11 +723,11 @@ async function reviewsSheet(){
 
 async function renderAdmin(){
   cleanupView();
-  app.innerHTML = `<div class="page"><div class="head"><button class="link" id="bk" style="font-size:20px">→ חזרה</button><h2>📊 לוח ניהול</h2><button class="iconbtn" id="rf" aria-label="רענון">🔄</button></div><button class="btn yel" id="snap">📸 תמונת מצב להצגה</button><div id="ad"><div class="spin"></div></div></div>`;
+  app.innerHTML = `<div class="page"><div class="head"><button class="link" id="bk" style="font-size:20px">→ חזרה</button><h2>📊 לוח ניהול</h2><button class="iconbtn" id="rf" aria-label="רענון">🔄</button></div><div id="ad"><div class="spin"></div></div></div>`;
   $('#bk').onclick = () => { tab = 'profile'; renderMain(); };
   $('#rf').onclick = renderAdmin;
-  let users = [], all = [], rs = [], reps = [];
-  try { [users, all, rs, reps] = await Promise.all([B.listUsers(), B.listAllChats(), B.listRatings(), B.listReports().catch(() => [])]); }
+  let users = [], all = [], rs = [];
+  try { [users, all, rs] = await Promise.all([B.listUsers(), B.listAllChats(), B.listRatings()]); }
   catch(e){ $('#ad').innerHTML = '<div class="card empty">אין הרשאת ניהול לחשבון הזה.</div>'; return; }
   users = users.filter(u => u.name && !u.seed);
   const now = Date.now(), dayMs = 864e5, t0 = new Date().setHours(0,0,0,0);
@@ -807,12 +743,7 @@ async function renderAdmin(){
   const grades = GRADES.map(g => ({g, n: users.filter(u => u.grade === g).length})), maxG = Math.max(1, ...grades.map(x => x.n));
   const kpi = (n,l,c='var(--sky)') => `<div class="kpi"><b style="color:${c}">${typeof n === 'number' ? `<span data-to="${n}">0</span>` : n}</b><small>${l}</small></div>`;
   const seen = u => !u.lastSeen ? '—' : online(u) ? '<b style="color:var(--grn)">● עכשיו</b>' : timeStr(u.lastSeen);
-  const openReps = reps.filter(r => r.status !== 'done'), byId = Object.fromEntries(users.map(u => [u.id, u]));
   $('#ad').innerHTML = `
-    <div class="card" style="${openReps.length ? 'border-color:var(--pink)' : ''}"><div class="row between"><h3>🚩 דיווחים ${openReps.length ? `<span class="tag need">${openReps.length} פתוחים</span>` : ''}</h3></div>
-      ${reps.length ? reps.slice(0,20).map(r => `<div class="thx" style="${r.status === 'done' ? 'opacity:.5' : ''}"><div class="row between"><b>${esc(r.reason)}</b><span class="small muted">${timeStr(r.at)}</span></div>
-        <div class="small">על: <b>${esc(r.targetName||'')}</b> · מאת: ${esc(r.byName||'')}${byId[r.target]?.banned ? ' · <span style="color:var(--pink)">מושעה</span>' : ''}</div>${r.text ? `<div class="small" style="margin-top:4px">"${esc(r.text)}"</div>` : ''}
-        ${r.status === 'done' ? '<div class="small muted">✓ טופל</div>' : `<div class="row" style="margin-top:6px"><button class="btn sm grn" data-done="${esc(r.id)}">✓ טופל</button><button class="btn sm pink" data-ban="${esc(r.target)}" data-v="${byId[r.target]?.banned ? '0' : '1'}">${byId[r.target]?.banned ? 'ביטול השעיה' : '⛔ השעיית משתמש'}</button></div>`}</div>`).join('') : '<div class="muted small">אין דיווחים 🎉</div>'}</div>
     <div class="kpis">${kpi(users.length,'נרשמו')}${kpi(users.filter(online).length,'מחוברים עכשיו','var(--grn)')}${kpi(users.filter(u => (u.lastSeen||0) >= t0).length,'פעילים היום','var(--grn)')}
       ${kpi(users.filter(u => u.createdAt >= now - 7*dayMs).length,'חדשים השבוע','var(--vio)')}${kpi(all.length,'צ׳אטים','var(--pink)')}${kpi(sessions.length,'מפגשים שהוצעו','var(--yel)')}
       ${kpi(ok.length,'מפגשים שאושרו','var(--yel)')}${kpi(upcoming,'מפגשים קרובים','var(--yel)')}${kpi(calls,'שיחות וידאו','var(--pink)')}
@@ -824,7 +755,7 @@ async function renderAdmin(){
     <div class="card"><h3>🎓 לפי כיתה</h3>${grades.map(x => `<div class="hb"><span>${x.g}</span><div><i style="width:${x.n/maxG*100}%;background:var(--sky)"></i></div><small>${x.n}</small></div>`).join('')}</div>
     <div class="card"><div class="row between"><h3>👥 משתמשים</h3><button class="btn sm alt" id="csv">⬇️ אקסל (CSV)</button></div>
       <input id="us" placeholder="חיפוש לפי שם…" style="margin:10px 0">
-      <div class="tbl"><table><thead><tr><th>שם</th><th>כיתה</th><th>הצטרפות</th><th>פעילות אחרונה</th><th>⭐</th><th>שיעורים</th></tr></thead><tbody id="ut"></tbody></table></div></div>
+      <div class="tbl"><table><thead><tr><th>שם</th><th>כיתה</th><th>נרשם/ה</th><th>נראה/תה</th><th>⭐</th><th>שיעורים</th></tr></thead><tbody id="ut"></tbody></table></div></div>
     <div class="card"><h3>📅 מפגשים קרובים</h3>${ok.filter(s => s.at > now).sort((a,b) => a.at - b.at).slice(0,15).map(s => `<div class="small" style="padding:4px 0;border-bottom:1px solid var(--line)">${esc(whenStr(s.at))} · ${ICON[s.subject]||''} ${esc(s.subject||'')} · ${placeName(s.place)}</div>`).join('') || '<div class="muted small">אין מפגשים קרובים</div>'}
       <div class="small muted" style="margin-top:8px">ממתינים לאישור: ${pend.length} · נדחו: ${no.length}</div></div>
     <div class="card"><div class="row between"><h3>💬 דירוגים</h3><button class="btn sm alt" id="rvs">לכל הדירוגים</button></div>
@@ -832,13 +763,6 @@ async function renderAdmin(){
     <p class="mode">התוכן של הצ׳אטים פרטי ולא מוצג כאן, רק מספרים.</p>`;
   const drawU = q => { $('#ut').innerHTML = users.filter(u => !q || u.name.includes(q)).sort((a,b) => (b.lastSeen||0) - (a.lastSeen||0)).map(u =>
     `<tr><td>${esc(u.name)}</td><td>${esc(u.grade||'')}</td><td>${u.createdAt ? new Date(u.createdAt).toLocaleDateString('he-IL') : ''}</td><td>${seen(u)}</td><td>${totalStars(u)}</td><td>${Object.values(u.progress||{}).reduce((a,b) => a+b, 0)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">אין משתמשים</td></tr>'; };
-  $('#ad').addEventListener('click', async e => {
-    const d = e.target.closest('[data-done]'), bn = e.target.closest('[data-ban]');
-    if(d){ await B.resolveReport(d.dataset.done).catch(err => toast(errMsg(err))); renderAdmin(); }
-    if(bn){ const v = bn.dataset.v === '1'; if(v && !confirm('להשעות את המשתמש? הוא לא יוכל להשתמש באפליקציה עד ביטול ההשעיה.')) return;
-      await B.setBan(bn.dataset.ban, v).catch(err => toast(errMsg(err))); toast(v ? 'המשתמש הושעה' : 'ההשעיה בוטלה'); renderAdmin(); }
-  });
-  $('#snap').onclick = () => snapshot(users, all, rs);
   countUp($('#ad'));
   drawU(''); $('#us').oninput = e => drawU(e.target.value.trim());
   $('#rvs').onclick = reviewsSheet;
@@ -872,149 +796,6 @@ function renderIntro(done){
   draw();
 }
 
-
-/* =============== v5: streak week, quests, splash =============== */
-
-function hideSplash(){
-  const sp = $('#splash'); if(!sp || sp.dataset.out) return; sp.dataset.out = 1;
-  setTimeout(() => { sp.classList.add('out'); setTimeout(() => sp.remove(), 500); }, Math.max(0, 1100 - performance.now()));
-}
-function markDay(k){ const t = today(); if(me?.[k] === t) return; me[k] = t; B.saveUser(myId, {[k]: t}).catch(() => {}); }
-function weekStrip(){
-  const days = new Set(me.days || []);
-  return `<div class="week">${Array.from({length:7}, (_,i) => { const d = new Date(Date.now() - (6-i)*864e5), k = today(d);
-    return `<div class="${days.has(k) ? 'on' : ''} ${i === 6 ? 'today' : ''}"><span>${days.has(k) ? '🔥' : ''}</span>${DAYS[d.getDay()]}</div>`; }).join('')}</div>`;
-}
-function questsHtml(){
-  const t = today(), tc = todayCount(me);
-  const Q = [['📚','2 תרגולים היום', Math.min(tc,2), 2], ['🕹️','משחק ארקייד אחד', me.arcDay === t ? 1 : 0, 1], ['💬','הודעה לחברותא', me.msgDay === t ? 1 : 0, 1]];
-  const all = Q.every(q => q[2] >= q[3]), claimed = me.chestDay === t;
-  return `<div class="card"><div class="row between"><b class="fred big">🎯 משימות היום</b><button class="chest ${claimed ? 'open' : all ? 'ready' : ''}" id="chest" aria-label="תיבת פרס">${claimed ? '📭' : '🎁'}</button></div>
-    ${Q.map(q => { const ok = q[2] >= q[3]; return `<div class="quest ${ok ? 'done' : ''}"><div class="qi">${ok ? '✓' : q[0]}</div><div class="grow"><div class="small" style="font-weight:700">${q[1]}</div><div class="prog" style="height:9px;margin-top:3px"><i style="width:${q[2]/q[3]*100}%;background:${ok ? 'var(--grn)' : 'var(--yel)'}"></i></div></div><span class="small muted">${q[2]}/${q[3]}</span></div>`; }).join('')}
-    <div class="small muted" style="margin-top:4px">${claimed ? 'פתחת את התיבה של היום! מחר מחכה תיבה חדשה 🌙' : all ? 'לחץ על התיבה ותקבל 15 ⭐' : 'סיים את שלוש המשימות ופתח את התיבה: 15 ⭐'}</div></div>`;
-}
-async function openChest(){
-  const t = today(), tc = todayCount(me), all = tc >= 2 && me.arcDay === t && me.msgDay === t;
-  if(me.chestDay === t) return toast('כבר פתחת את התיבה היום 🌙');
-  if(!all) return toast('קודם צריך לסיים את שלוש המשימות 💪');
-  me.chestDay = t; me.gameStars = (me.gameStars||0) + 15; pendingFly += 15;
-  try { await B.saveUser(myId, {chestDay:t, gameStars:me.gameStars}); } catch {}
-  confetti(); sound('win'); vibrate([30,60,30]); toast('🎁 קיבלת 15 כוכבים!'); renderMain(); setTimeout(checkBadges, 900);
-}
-
-/* =============== safety: rules, filter, report, block =============== */
-
-const RULES = [
-  ['🤝','מכבדים את כולם','בלי קללות, עלבונות או לעג. כולנו כאן כדי ללמוד.'],
-  ['🔒','שומרים על פרטיות','לא משתפים מספר טלפון, כתובת או סיסמה, ולא מבקשים אותם מאחרים.'],
-  ['📚','רק לימודים','החברותא נועדה לעזרה בלימודים. שיחות וידאו רק בנושא הלימודים.'],
-  ['🚩','משהו מרגיש לא בסדר?','לוחצים על ⋯ בצ׳אט ובוחרים "דיווח" או "חסימה". הצוות בודק כל דיווח.'],
-  ['👨‍👩‍👧','מספרים למבוגר','אם מישהו מטריד או מבקש משהו מוזר, ספרו להורה או למורה.'],
-];
-function rulesSheet(){
-  sheet(`<div style="text-align:center"><div style="font-size:44px">🛡️</div><h3>כללי ההתנהגות בחברותא</h3></div>
-    <div class="list" style="margin-top:12px">${RULES.map(r => `<div class="row" style="align-items:flex-start;gap:12px"><div style="font-size:26px">${r[0]}</div><div><b>${r[1]}</b><div class="small muted">${r[2]}</div></div></div>`).join('')}</div>
-    <div style="height:14px"></div><button class="btn" data-x>הבנתי 👍</button>`, (el, close) => el.querySelector('[data-x]').onclick = close);
-}
-const BAD = ['זונה','שרמוטה','מניאק','כוס','זין','חרא','מטומטם','מטומטמת','מפגר','מפגרת','אידיוט','דביל','דבילית','סתום','סתמי','תזדיין','תזדייני','בן זונה','בת זונה','כוסית','fuck','fucking','shit','bitch','dick','pussy','asshole','bastard','idiot','stupid','retard'];
-const badRe = new RegExp(`(^|[^א-תa-z])([והשבכלמ]?)(${BAD.map(w => w.replace(/ /g,'\\s+')).join('|')})(?=$|[^א-תa-z])`, 'gi');
-const cleanText = t => String(t).replace(badRe, (m, a, b, w) => a + b + '★'.repeat(Math.min(5, w.length)));
-const hasPersonal = t => /(0[5-9]\d[-\s]?\d{3}[-\s]?\d{4}|\+972|\bכתובת\b|\bרחוב\b|סיסמה|סיסמא|instagram|אינסטגרם|טיקטוק|tiktok|snap|סנאפ)/i.test(t);
-const isBlocked = uid => (me?.blocked || []).includes(uid);
-
-async function toggleBlock(uid, name){
-  const bl = new Set(me.blocked || []), was = bl.has(uid);
-  was ? bl.delete(uid) : bl.add(uid);
-  me.blocked = [...bl]; try { await B.saveUser(myId, {blocked: me.blocked}); } catch {}
-  toast(was ? `ביטלת את החסימה של ${name}` : `🚫 חסמת את ${name}. לא תראו יותר זה את זה`);
-}
-function reportSheet(target, cid){
-  const R = ['הטרדה','שפה פוגענית','בקשה לפרטים אישיים','תוכן לא לימודי','התחזות','אחר'];
-  let reason = '';
-  sheet(`<div style="text-align:center"><div style="font-size:44px">🚩</div><h3>דיווח על ${esc(target.name)}</h3><p class="small muted" style="margin:4px 0">הדיווח נשלח לצוות חברותא בלבד. ${esc(target.name)} לא יידע מי דיווח.</p></div>
-    <label>מה קרה?</label><div class="chips" id="rr">${R.map(r => `<span class="chip" data-r="${r}">${r}</span>`).join('')}</div>
-    <label for="rd">פרטים <span class="muted small">(לא חובה)</span></label><textarea id="rd" rows="3" maxlength="500" placeholder="מה בדיוק קרה?"></textarea>
-    <label class="row" style="gap:8px;font-weight:600"><input type="checkbox" id="rb" checked style="width:auto"> לחסום גם את ${esc(target.name)}</label>
-    <div style="height:10px"></div><button class="btn pink" id="rs" disabled>שליחת דיווח</button>
-    <p class="small muted" style="margin:10px 0 0">אם מישהו מאיים עליך או מבקש משהו מפחיד, ספרו מיד להורה או למורה.</p>`, (el, close) => {
-      el.querySelector('#rr').onclick = e => { const c = e.target.closest('[data-r]'); if(!c) return; reason = c.dataset.r; el.querySelectorAll('#rr .chip').forEach(x => x.classList.toggle('need', x === c)); el.querySelector('#rs').disabled = false; };
-      el.querySelector('#rs').onclick = async e => { e.target.disabled = true;
-        try { await B.addReport({by:myId, byName:me.name, target:target.id, targetName:target.name, reason, text:el.querySelector('#rd').value.trim().slice(0,500), cid:cid||'', at:Date.now(), status:'open'});
-          if(el.querySelector('#rb').checked && !isBlocked(target.id)) await toggleBlock(target.id, target.name);
-          close(); toast('תודה על הדיווח. הצוות יבדוק בהקדם 🛡️'); if(el.querySelector('#rb').checked && $('.chatwrap')){ tab = 'chats'; renderMain(); } }
-        catch(err){ e.target.disabled = false; toast(errMsg(err)); } };
-    });
-}
-function chatMenu(cid, o){
-  const bl = isBlocked(o.id);
-  sheet(`<h3 style="margin-bottom:12px">${esc(o.name)}</h3><div class="list">
-    <button class="btn alt" data-a="report">🚩 דיווח</button>
-    <button class="btn alt" data-a="block">${bl ? '✅ ביטול חסימה' : '🚫 חסימה'}</button>
-    <button class="btn alt" data-a="rules">🛡️ כללי ההתנהגות</button></div>`, (el, close) => {
-      el.onclick = async e => { const a = e.target.closest('[data-a]')?.dataset.a; if(!a) return; close();
-        if(a === 'report') reportSheet(o, cid);
-        if(a === 'rules') rulesSheet();
-        if(a === 'block'){ await toggleBlock(o.id, o.name); if(!bl){ tab = 'chats'; renderMain(); } else renderChat(cid); } };
-    });
-}
-
-/* =============== certificate & stats snapshot =============== */
-
-const loadImg = src => new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = src; });
-async function saveCanvas(c, name, text){
-  const blob = await new Promise(r => c.toBlob(r, 'image/png')), file = new File([blob], name, {type:'image/png'});
-  try { if(navigator.canShare?.({files:[file]})) return await navigator.share({files:[file], text}); } catch(e){ if(e?.name === 'AbortError') return; }
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); toast('התמונה נשמרה 📥');
-}
-function helpedSessions(){
-  const now = Date.now();
-  return chats.flatMap(c => Object.values(c.sessions||{}).map(s => ({...s, cid:c.id})))
-    .filter(s => s.status === 'ok' && s.at < now && (me.help||[]).includes(s.subject));
-}
-async function certificate(){
-  const ss = helpedSessions(), hours = Math.round(ss.length * 0.75 * 10) / 10;
-  if(!ss.length && !(me.stars > 0)) return toast('עוד אין מפגשי עזרה שהתקיימו. אחרי המפגש הראשון יהיה כאן אישור 💪');
-  try { await document.fonts?.ready; } catch {}
-  const W = 1754, H = 1240, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
-  x.fillStyle = '#fffdf6'; x.fillRect(0, 0, W, H);
-  const g = x.createLinearGradient(0, 0, W, 0); ['#ff6b8a','#ffd65c','#5ee0a0','#5cc8ff','#a98bff'].forEach((col,i) => g.addColorStop(i/4, col));
-  x.fillStyle = g; x.fillRect(0, 0, W, 26); x.fillRect(0, H-26, W, 26);
-  x.strokeStyle = '#c9b77a'; x.lineWidth = 4; x.strokeRect(60, 70, W-120, H-140); x.lineWidth = 1.5; x.strokeRect(78, 88, W-156, H-176);
-  const logo = await loadImg('logo.svg'); if(logo) x.drawImage(logo, W/2 - 85, 130, 170, 170);
-  x.textAlign = 'center'; x.direction = 'rtl'; x.fillStyle = '#14173a';
-  x.font = '700 86px Fredoka, Assistant, serif'; x.fillText('אישור על עזרה לימודית', W/2, 400);
-  x.font = '500 40px Assistant, serif'; x.fillStyle = '#4a4f80'; x.fillText('בתוכנית חברותא · תלמידים עוזרים לתלמידים', W/2, 465);
-  x.fillStyle = '#14173a'; x.font = '600 44px Assistant, serif'; x.fillText('מאשרים בזאת כי', W/2, 580);
-  x.font = '700 92px Fredoka, Assistant, serif'; x.fillStyle = '#2b6fd8'; x.fillText(me.name + (me.grade ? `, כיתה ${me.grade}` : ''), W/2, 690);
-  x.fillStyle = '#14173a'; x.font = '600 46px Assistant, serif';
-  x.fillText(`השתתפות פעילה בעזרה לתלמידים אחרים ב${(me.help||[]).slice(0,3).join(', ')}`, W/2, 790);
-  x.font = '700 58px Fredoka, Assistant, serif'; x.fillStyle = '#2f9a68';
-  x.fillText(`${ss.length} מפגשים · כ-${hours} שעות${me.stars ? ` · ${me.stars} כוכבי תודה` : ''}`, W/2, 890);
-  x.fillStyle = '#4a4f80'; x.font = '500 36px Assistant, serif';
-  x.fillText(`הופק מאפליקציית חברותא בתאריך ${new Date().toLocaleDateString('he-IL')}`, W/2, 990);
-  x.strokeStyle = '#14173a'; x.lineWidth = 2; x.beginPath(); x.moveTo(W/2 - 220, 1080); x.lineTo(W/2 + 220, 1080); x.stroke();
-  x.font = '600 34px Assistant, serif'; x.fillStyle = '#14173a'; x.fillText('צוות חברותא', W/2, 1125);
-  saveCanvas(c, 'chavruta-certificate.png', `אישור עזרה לימודית בחברותא – ${me.name}`);
-}
-async function snapshot(users, all, rs){
-  try { await document.fonts?.ready; } catch {}
-  const W = 1600, H = 900, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
-  const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#1b1650'); g.addColorStop(1, '#0e1028'); x.fillStyle = g; x.fillRect(0, 0, W, H);
-  const logo = await loadImg('logo.svg'); if(logo) x.drawImage(logo, W - 190, 40, 130, 130);
-  x.direction = 'rtl'; x.textAlign = 'right'; x.fillStyle = '#fff'; x.font = '700 64px Fredoka, Assistant'; x.fillText('חברותא · נתונים', W - 220, 110);
-  x.font = '500 32px Assistant'; x.fillStyle = '#a4a8d6'; x.fillText(new Date().toLocaleDateString('he-IL', {day:'numeric', month:'long', year:'numeric'}), W - 220, 160);
-  const ses = all.flatMap(c => Object.values(c.sessions||{})), ok = ses.filter(s => s.status === 'ok').length;
-  const avg = rs.length ? (rs.reduce((a,r) => a + r.stars, 0) / rs.length).toFixed(1) : '—';
-  const K = [[users.length,'תלמידים נרשמו','#5cc8ff'],[all.length,'חברותות נוצרו','#ff6b8a'],[ok,'מפגשים שאושרו','#ffd65c'],
-    [all.reduce((a,c) => a + (c.callCount||0), 0),'שיחות וידאו','#a98bff'],[users.reduce((a,u) => a + Object.values(u.progress||{}).reduce((p,q) => p+q, 0), 0),'שיעורי תרגול','#5ee0a0'],[avg + ' ★','דירוג ממוצע' + (rs.length ? ` (${rs.length})` : ''),'#ffd65c']];
-  K.forEach(([n,l,col],i) => { const cx = W - 80 - (i % 3) * 490, cy = 230 + Math.floor(i/3) * 300;
-    x.fillStyle = 'rgba(255,255,255,.06)'; x.beginPath(); x.roundRect ? x.roundRect(cx - 450, cy, 450, 260, 36) : x.rect(cx - 450, cy, 450, 260); x.fill();
-    x.textAlign = 'center'; x.fillStyle = col; x.font = '700 110px Fredoka, Assistant'; x.fillText(String(n), cx - 225, cy + 150);
-    x.fillStyle = '#e6e8ff'; x.font = '600 36px Assistant'; x.fillText(l, cx - 225, cy + 215); });
-  x.textAlign = 'center'; x.fillStyle = '#a4a8d6'; x.font = '500 28px Assistant'; x.fillText('chavruta-il-app.vercel.app · תלמידים עוזרים לתלמידים', W/2, H - 40);
-  saveCanvas(c, `chavruta-stats-${today()}.png`, 'הנתונים של חברותא');
-}
-
 /* =============== boot =============== */
 
 function enterApp(){
@@ -1027,13 +808,6 @@ function enterApp(){
     checkIncoming(); checkBadges();
   });
   unsubMe = B.onUser(myId, u => { const changed = totalStars(u) !== totalStars(me); me = {...me, ...u}; if(changed){ checkBadges(); if(!overlayOpen() && $('.tabs')) renderMain(); } });
-  window.CV_NAME = me.name;
-  if(!localStorage.getItem('cv_tour')) setTimeout(() => { if(overlayOpen()) return; localStorage.setItem('cv_tour','1'); tour([
-    {sel:'.tabs [data-t=home]', title:'🏠 בית', text:'היעד היומי, המשימות והמפגשים הקרובים שלך.'},
-    {sel:'.tabs [data-t=find]', title:'🔍 חברותא', text:'כאן מוצאים מי יעזור לך, או למי אתה יכול לעזור.'},
-    {sel:'.tabs [data-t=practice]', title:'🎮 תרגול', text:'שיעורים קצרים ומשחקים: בועות, זיכרון ו-60 שניות.'},
-    {sel:'.tabs [data-t=chats]', title:'💬 צ׳אטים', text:'הודעות, קביעת מפגשים ושיחות וידאו.'},
-    {sel:'.tabs [data-t=profile]', title:'⭐ פרופיל', text:'הכוכבים, התגים ומה אומרים עליך.'}]); }, 1400);
   heartbeat(); B.isAdmin(myId).then(v => { isAdm = v; if(v && tab === 'profile' && !overlayOpen()) renderMain(); });
   renderMain();
 }
@@ -1041,16 +815,14 @@ function enterApp(){
 async function boot(){
   deco();
   try { B = window.CHAVRUTA_FIREBASE ? await firebaseBackend(window.CHAVRUTA_FIREBASE) : localBackend(); }
-  catch(e){ console.error(e); hideSplash(); app.innerHTML = '<div class="page center"><div class="brand">חברותא</div><div class="card empty">לא הצלחנו להתחבר. בדוק את החיבור לאינטרנט.<br><button class="btn sm" onclick="location.reload()" style="margin-top:12px">נסה שוב</button></div></div>'; return; }
+  catch(e){ console.error(e); app.innerHTML = '<div class="page center"><div class="brand">חברותא</div><div class="card empty">לא הצלחנו להתחבר. בדוק את החיבור לאינטרנט.<br><button class="btn sm" onclick="location.reload()" style="margin-top:12px">נסה שוב</button></div></div>'; return; }
   B.onAuth(async uid => {
     unsubChats && unsubChats(); unsubMe && unsubMe(); unsubChats = unsubMe = null; cleanupView();
     myId = uid; me = null; chats = []; tab = firstTab || 'home'; firstTab = null;
     isAdm = false;
-    if(!uid){ hideSplash(); return localStorage.getItem('cv_intro') ? renderAuth() : renderIntro(() => renderAuth('register')); }
-    app.innerHTML = '<div class="page center"><img class="logo" src="logo.svg" alt=""><div class="brand">חברותא</div><div class="spin"></div></div>';
+    if(!uid) return localStorage.getItem('cv_intro') ? renderAuth() : renderIntro(() => renderAuth('register'));
+    app.innerHTML = '<div class="page center"><div class="rings"><i></i><i></i></div><div class="brand">חברותא</div><div class="spin"></div></div>';
     try { me = await B.getUser(uid); } catch(e){ console.error(e); }
-    hideSplash();
-    if(me?.banned){ app.innerHTML = `<div class="page center" style="text-align:center">${mascot('sad',1)}<h2>החשבון הושעה</h2><p class="muted">בעקבות דיווח, החשבון הושעה זמנית. לשאלות: chavruta.il.app@gmail.com</p><button class="btn alt" id="lo2">יציאה</button></div>`; $('#lo2').onclick = () => B.logout(); return; }
     if(!me || !me.name){ me = null; return renderOnboard(); }
     enterApp();
   });
