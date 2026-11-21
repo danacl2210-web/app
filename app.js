@@ -1,7 +1,7 @@
 // חברותא – תלמידים עוזרים לתלמידים
 // מצב ענן (Firebase, משתמשים אמיתיים) או מצב מקומי (localStorage, לבדיקה במכשיר אחד)
-import { $, esc, avatar, toast, sheet, confetti, sound, deco, vibrate, countUp, flyStars } from './ui.js';
-import { ICON, SUBJECTS, LESSONS_PER_SUBJECT, startLesson, startSpeed } from './games.js';
+import { $, esc, avatar, toast, sheet, confetti, sound, deco, vibrate, countUp, flyStars, mascot } from './ui.js';
+import { ICON, SUBJECTS, LESSONS_PER_SUBJECT, startLesson, startSpeed, startMemory, startBubbles } from './games.js';
 import { startCall as _startCall, answerCall as _answerCall, declineCall, inCall } from './video.js';
 const countCall = () => { me.calls = (me.calls||0) + 1; B.saveUser(myId, {calls: me.calls}).catch(() => {}); setTimeout(checkBadges, 4000); };
 const startCall = (...a) => { countCall(); B.incChat(a[1], 'callCount').catch(() => {}); return _startCall(...a); };
@@ -198,7 +198,7 @@ function renderAuth(mode = 'login'){
   cleanupView();
   const reg = mode === 'register';
   app.innerHTML = `<div class="page center">
-    <div class="rings"><i></i><i></i></div><div class="brand">חברותא</div>
+    <img class="logo" src="logo.svg" alt=""><div class="brand">חברותא</div>
     <p class="sub">תלמידים עוזרים לתלמידים. חינם.</p>
     <form class="card" id="f" novalidate><div class="rainbar"></div>
       <h2 style="font-size:24px">${reg ? 'הרשמה 🎉' : 'ברוך שובך 👋'}</h2>
@@ -288,7 +288,7 @@ function renderMain(){
   if(pendingFly){ const n = pendingFly; pendingFly = 0; setTimeout(() => flyStars(Math.min(10, Math.max(3, Math.round(n/2)))), 350); }
 }
 const pills = () => `<div class="row"><span class="pill fire" title="ימים ברצף">🔥 <span data-cu="streak" data-to="${streakOf(me)}">${streakOf(me)}</span></span><span class="pill stars" title="כוכבים">⭐ <span data-cu="stars" data-to="${totalStars(me)}">${totalStars(me)}</span></span></div>`;
-let pendingFly = 0;
+let pendingFly = 0, scrollToPath = false;
 
 function allSessions(){
   return chats.flatMap(c => Object.entries(c.sessions||{}).map(([sid,s]) => ({...s, sid, cid:c.id, other:c.members.find(x => x !== myId), name:c.names?.[c.members.find(x => x !== myId)]})))
@@ -323,13 +323,20 @@ function renderHome(){
   const ses = allSessions().slice(0,3), tc = todayCount(me), pct = Math.min(100, tc / DAILY_GOAL * 100);
   const nextSubj = (me.need||[])[0] || (me.help||[])[0] || SUBJECTS[0];
   app.innerHTML = `<div class="page">
-    <div class="head"><div><div class="muted small">${hi},</div><h2 style="font-size:26px">${esc(me.name)} 👋</h2></div>${pills()}</div>
+    <div class="hero">
+      <div class="row between"><div><div class="small" style="opacity:.85">${hi},</div><h2 style="font-size:28px">${esc(me.name)} 👋</h2></div>${pills()}</div>
+      <div class="row" style="margin-top:14px;gap:14px">
+        <div class="ring big2" style="--p:${pct}"><span><b>${tc}/${DAILY_GOAL}</b><small>היום</small></span></div>
+        <div class="grow"><b class="fred big">${tc >= DAILY_GOAL ? 'השלמת את היעד היומי! 🎉' : 'היעד היומי שלך'}</b>
+          <div class="small" style="opacity:.85">${tc >= DAILY_GOAL ? 'אפשר להמשיך לצבור כוכבים' : `עוד ${DAILY_GOAL - tc} שיעורים קצרים ב${ICON[nextSubj]} ${esc(nextSubj)}`}</div>
+          <div class="lvl"><span>רמה ${level(me)}</span><div class="prog"><i style="width:${(totalStars(me) % 50) * 2}%;background:var(--rain)"></i></div></div></div>
+      </div>
+      <button class="btn grn" id="daily" style="margin-top:14px">▶ ${tc ? 'להמשיך לשחק' : 'להתחיל שיעור'}</button>
+    </div>
+    ${questsHtml()}
     ${installBanner()}
-    <div class="card gamecard" id="daily"><div class="ring" style="--p:${pct}"><span>${tc}/${DAILY_GOAL}</span></div>
-      <div class="grow"><b class="fred big">${tc >= DAILY_GOAL ? 'השלמת את היעד היומי! 🎉' : 'היעד היומי שלך'}</b><div class="small muted">${tc >= DAILY_GOAL ? 'אפשר להמשיך לצבור כוכבים' : `עוד ${DAILY_GOAL - tc} שיעורים קצרים ב${ICON[nextSubj]} ${esc(nextSubj)}`}</div></div>
-      <button class="btn grn sm">שחק</button></div>
     <div class="head"><h3>📅 המפגשים הקרובים</h3>${ses.length ? '' : ''}</div>
-    <div class="list" id="ses">${ses.length ? ses.map(sessionCard).join('') : '<div class="card empty">עוד אין מפגשים.<br>מצא חברותא, ואז קבעו זמן בכפתור 📅 בצ׳אט.</div>'}</div>
+    <div class="list" id="ses">${ses.length ? ses.map(sessionCard).join('') : `<div class="card empty">${mascot('', .6)}<br>עוד אין מפגשים.<br>מצא חברותא, ואז קבעו זמן בכפתור 📅 בצ׳אט.</div>`}</div>
     <div class="card gamecard" id="gofind"><div class="ic" style="background:var(--sky)">🔍</div><div class="grow"><b class="fred big">${(me.need||[]).length ? 'מצא מי יעזור לך' : 'מצא למי לעזור'}</b>
       <div class="small muted">${esc(((me.need||[]).length ? me.need : me.help||[]).slice(0,3).join(' · '))}</div></div><span class="big">←</span></div>
     <div class="card gamecard" id="gospeed"><div class="ic" style="background:var(--yel)">⚡</div><div class="grow"><b class="fred big">אתגר 60 שניות</b><div class="small muted">נכון או לא נכון, הכי מהר שאפשר</div></div><span class="big">←</span></div>
@@ -337,9 +344,11 @@ function renderHome(){
     ${!me.rated && (Object.keys(me.progress||{}).length || chats.length) ? `<div class="card gamecard" id="rate" style="background:linear-gradient(120deg,#3b2f0e,#1d2150)"><div class="ic" style="background:var(--yel)">💛</div><div class="grow"><b class="fred big">איך חברותא בשבילך?</b><div class="small muted">דרג אותנו בשתי שניות</div></div><span class="stars big">★★★★★</span></div>` : ''}
   </div>`;
   $('#rate') && ($('#rate').onclick = rateSheet);
+  $('#chest').onclick = openChest;
   B.listUsers().then(us => { const on = us.filter(u => u.id !== myId && u.name && online(u)).slice(0,8), el = $('#onl'); if(!el || !on.length) return;
     el.innerHTML = `<div class="card"><b class="small" style="color:var(--grn)">● מחוברים עכשיו</b><div class="row" style="margin-top:8px;overflow-x:auto;gap:12px">${on.map(u => `<div style="text-align:center;flex:none">${avatarOn(u,44)}<div class="small">${esc(u.name)}</div></div>`).join('')}</div></div>`; }).catch(() => {});
-  $('#daily').onclick = () => { pathSubject = nextSubj; tab = 'practice'; renderMain(); };
+  $('#daily').onclick = () => { pathSubject = nextSubj; const d = me.progress?.[nextSubj] || 0;
+    if(d < LESSONS_PER_SUBJECT){ tab = 'practice'; renderMain(); lesson(nextSubj, true); } else { tab = 'practice'; scrollToPath = true; renderMain(); } };
   $('#gofind').onclick = () => { findMode = (me.need||[]).length ? 'need' : 'help'; tab = 'find'; renderMain(); };
   $('#gospeed').onclick = speed;
   bindSessions($('#ses'));
@@ -394,7 +403,7 @@ function requestSheet(u, match){
     <div style="height:14px"></div><button class="btn" id="rg">${ask ? '🙋 בקשת עזרה' : '🤝 הצעת עזרה'}</button>`, (el, close) => {
       const rs = el.querySelector('#rs'), rt = el.querySelector('#rt'); rs.onchange = () => rt.value = def(rs.value);
       el.querySelector('#rg').onclick = async e => { const text = rt.value.trim(); if(!text) return; e.target.disabled = true;
-        try { const cid = await B.openChat(myId, u.id, {[myId]:me.name, [u.id]:u.name}, rs.value); await B.send(cid, {from:myId, type:'text', text}); close(); renderChat(cid); }
+        try { const cid = await B.openChat(myId, u.id, {[myId]:me.name, [u.id]:u.name}, rs.value); await B.send(cid, {from:myId, type:'text', text}); markDay('msgDay'); close(); renderChat(cid); }
         catch(err){ e.target.disabled = false; toast(errMsg(err)); } };
     });
 }
@@ -409,28 +418,33 @@ function renderPractice(){
   app.innerHTML = `<div class="page">
     <div class="head"><h2 style="font-size:26px">תרגול 🎮</h2>${pills()}</div>
     <div class="card gamecard"><div class="ring" style="--p:${Math.min(100,tc/DAILY_GOAL*100)}"><span>${tc}/${DAILY_GOAL}</span></div>
-      <div class="grow"><b class="fred">יעד יומי</b><div class="small muted">${tc >= DAILY_GOAL ? 'השלמת היום! 🔥 הרצף נשמר' : 'שיעור אחד ביום שומר על הרצף 🔥'}</div></div></div>
+      <div class="grow"><b class="fred">יעד יומי</b><div class="small muted">${tc >= DAILY_GOAL ? 'השלמת היום! 🔥 הרצף נשמר' : 'שיעור אחד ביום שומר על הרצף 🔥'}</div>${weekStrip()}</div></div>
+    <div class="head"><h3>🕹️ ארקייד</h3><span class="small muted">כל משחק = כוכבים</span></div>
+    <div class="arcade">
+      <button class="arc" id="gospeed" style="--a:#ffd65c;--b:#ff9f5c"><span class="ai">⚡</span><b>60 שניות</b><small>נכון או לא נכון</small>${me.best?.speed ? `<em>שיא ${me.best.speed}</em>` : ''}</button>
+      <button class="arc" id="gobub" style="--a:#5cc8ff;--b:#a98bff"><span class="ai">🫧</span><b>בועות</b><small>פוצץ את התשובה</small>${me.best?.bubbles ? `<em>שיא ${me.best.bubbles}</em>` : ''}</button>
+      <button class="arc" id="gomem" style="--a:#ff6b8a;--b:#a98bff"><span class="ai">🧠</span><b>זיכרון</b><small>מצא את הזוגות</small>${me.best?.memory ? `<em>שיא ⭐${me.best.memory}</em>` : ''}</button>
+      <button class="arc" id="golb" style="--a:#5ee0a0;--b:#5cc8ff"><span class="ai">🏅</span><b>אלופים</b><small>טבלת הכוכבים</small></button>
+    </div>
+    <div class="head" style="margin-top:4px"><h3>🗺️ המסלול שלי</h3></div>
     <div class="chips" id="ps" style="flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px">${subs.map(s => `<span class="chip ${s===pathSubject?'on':''}" style="flex:none" data-s="${esc(s)}">${ICON[s]} ${esc(s)}</span>`).join('')}</div>
     <div class="card" style="text-align:center;background:linear-gradient(120deg,#1f6b4f,#1d2150)"><b class="fred big">${ICON[pathSubject]} ${esc(pathSubject)}</b>
       <div class="small">שיעור ${Math.min(done+1, LESSONS_PER_SUBJECT)} מתוך ${LESSONS_PER_SUBJECT}${done >= LESSONS_PER_SUBJECT ? ' · סיימת את המסלול! 🏆' : ''}</div></div>
     <div class="path" id="path">${Array.from({length:LESSONS_PER_SUBJECT}, (_,i) => {
       const st = i < done ? 'done' : i === done ? 'cur' : 'lock', ic = i === LESSONS_PER_SUBJECT-1 ? '🏆' : i % 3 === 2 ? '🎁' : st === 'done' ? '✓' : '⭐';
       return `<button class="node ${st}" data-i="${i}" style="left:${off[i%8]}px" aria-label="שיעור ${i+1}">${ic}</button>`; }).join('')}</div>
-    <h3>משחקים נוספים</h3>
-    <div class="card gamecard" id="gospeed"><div class="ic" style="background:var(--yel)">⚡</div><div class="grow"><b class="fred big">אתגר 60 שניות</b><div class="small muted">3 נכונות ברצף = ניקוד כפול</div></div><span class="big">←</span></div>
-    <div class="card gamecard" id="golb"><div class="ic" style="background:var(--vio)">🏅</div><div class="grow"><b class="fred big">טבלת האלופים</b><div class="small muted">מי צבר הכי הרבה כוכבים</div></div><span class="big">←</span></div>
   </div>`;
   $('#ps').onclick = e => { const c = e.target.closest('[data-s]'); if(!c) return; pathSubject = c.dataset.s; renderMain(); };
   $('#path').onclick = e => { const n = e.target.closest('.node'); if(!n) return; const i = +n.dataset.i;
     if(i > done) return toast('🔒 קודם צריך לסיים את השיעור הקודם');
     lesson(pathSubject, i >= done); };
-  $('#gospeed').onclick = speed; $('#golb').onclick = leaderboard;
-  setTimeout(() => $('.node.cur')?.scrollIntoView({block:'center', behavior:'smooth'}), 50);
+  $('#gospeed').onclick = speed; $('#golb').onclick = leaderboard; $('#gobub').onclick = bubbles; $('#gomem').onclick = memory;
+  if(scrollToPath){ scrollToPath = false; setTimeout(() => $('.node.cur')?.scrollIntoView({block:'center', behavior:'smooth'}), 120); }
 }
 
 async function reward(stars, advanceSubject, perfect){
   const t = today(), wasToday = me.lastDay === t;
-  const d = {gameStars:(me.gameStars||0) + stars, todayDay:t, todayCount:todayCount(me) + 1, lastDay:t,
+  const d = {gameStars:(me.gameStars||0) + stars, todayDay:t, todayCount:todayCount(me) + 1, lastDay:t, days:[...new Set([...(me.days||[]), t])].slice(-14),
     streak: wasToday ? (me.streak||1) : (me.lastDay === yesterday() ? (me.streak||0) + 1 : 1)};
   if(perfect) d.perfects = (me.perfects||0) + 1;
   if(advanceSubject) d.progress = {...(me.progress||{}), [advanceSubject]: Math.min(LESSONS_PER_SUBJECT, (me.progress?.[advanceSubject]||0) + 1)};
@@ -446,17 +460,23 @@ function lesson(subject, advance){
   // כשהשיעור נסגר – מרעננים את המסך
   const obs = new MutationObserver(() => { if(!$('.lesson')){ obs.disconnect(); renderMain(); } }); obs.observe(document.body, {childList:true});
 }
-function speed(){
-  startSpeed({subjects: practiceSubjects().slice(0,4), onFinish: r => r.score > 0 && reward(r.score, null)});
-  const obs = new MutationObserver(() => { if(!$('.lesson')){ obs.disconnect(); renderMain(); } }); obs.observe(document.body, {childList:true});
+function saveBest(k, v){
+  if(!(v > (me.best?.[k] || 0))) return;
+  const had = me.best?.[k]; me.best = {...(me.best||{}), [k]: v}; B.saveUser(myId, {best: me.best}).catch(() => {});
+  if(had) setTimeout(() => toast(`🏆 שיא אישי חדש: ${v}!`), 900);
 }
+function whenClosed(){ const obs = new MutationObserver(() => { if(!$('.lesson')){ obs.disconnect(); renderMain(); } }); obs.observe(document.body, {childList:true}); }
+function speed(){ startSpeed({subjects: practiceSubjects().slice(0,4), onFinish: r => { saveBest('speed', r.score); markDay('arcDay'); r.score > 0 && reward(r.score, null); }}); whenClosed(); }
+function bubbles(){ startBubbles({subjects: practiceSubjects().slice(0,4), onFinish: r => { saveBest('bubbles', r.score); markDay('arcDay'); r.score > 0 && reward(r.score, null); }}); whenClosed(); }
+function memory(){ startMemory({subjects: practiceSubjects().slice(0,3), onFinish: r => { saveBest('memory', r.stars); markDay('arcDay'); reward(r.stars, null); }}); whenClosed(); }
 async function leaderboard(){
   const close = sheet('<h3>🏅 טבלת האלופים</h3><div id="lb"><div class="spin"></div></div>');
   let users = []; try { users = await B.listUsers(); } catch {}
   const top = users.filter(u => u.name).sort((a,b) => totalStars(b) - totalStars(a)).slice(0,15);
   const el = $('#lb'); if(!el) return;
-  el.innerHTML = `<div class="list" style="margin-top:12px">${top.map((u,i) => `<div class="row" style="padding:6px 4px;${u.id===myId?'background:#123150;border-radius:12px':''}">
-    <b class="fred" style="width:28px;text-align:center">${['🥇','🥈','🥉'][i] || i+1}</b>${avatar(u.id,u.name,38)}<b class="grow">${esc(u.name)}${u.id===myId?' (אתה)':''}</b><span class="score">⭐ ${totalStars(u)}</span></div>`).join('')}</div>
+  const pod = [top[1], top[0], top[2]].map((u,k) => u ? `<div class="p${[2,1,3][k]}">${k === 1 ? '<div style="font-size:26px">👑</div>' : ''}${avatar(u.id,u.name,[48,60,44][k])}<div class="small" style="font-weight:700;margin-top:4px">${esc(u.name)}</div><div class="score small">⭐ ${totalStars(u)}</div><div class="blk">${[2,1,3][k]}</div></div>` : '<div></div>').join('');
+  el.innerHTML = `<div class="podium">${pod}</div><div class="list" style="margin-top:12px">${top.slice(3).map((u,j) => { const i = j + 3; return `<div class="row" style="padding:6px 4px;${u.id===myId?'background:#123150;border-radius:12px':''}">
+    <b class="fred" style="width:28px;text-align:center">${['🥇','🥈','🥉'][i] || i+1}</b>${avatar(u.id,u.name,38)}<b class="grow">${esc(u.name)}${u.id===myId?' (אתה)':''}</b><span class="score">⭐ ${totalStars(u)}</span></div>`; }).join('')}</div>
     <div style="height:12px"></div><button class="btn alt" id="lbx">סגירה</button>`;
   $('#lbx').onclick = close;
 }
@@ -470,7 +490,7 @@ function renderChats(){
       return `<div class="card item" data-c="${esc(c.id)}">${avatar(o,nm)}<div class="grow">
         <div class="row between"><b>${esc(nm)}</b><span class="small muted">${c.updatedAt ? timeStr(c.updatedAt) : ''}</span></div>
         <div class="small ${isUnread(c)?'':'muted'} ellipsis">${isUnread(c)?'<b style="color:var(--pink)">●</b> ':''}${ICON[c.subject]||''} ${esc(c.subject)} · ${esc(c.lastText||'')}</div></div></div>`; }).join('')
-      : '<div class="card empty">עוד אין צ׳אטים.<br>מצא חברותא בלשונית 🔍</div>'}</div></div>`;
+      : `<div class="card empty">${mascot('', .7)}<br>עוד אין צ׳אטים.<br>מצא חברותא בלשונית 🔍</div>`}</div></div>`;
   app.querySelector('.list').onclick = e => { const c = e.target.closest('[data-c]'); if(c) renderChat(c.dataset.c); };
 }
 
@@ -483,6 +503,7 @@ function renderChat(cid){
       <button class="iconbtn vid" id="vc" aria-label="שיחת וידאו" title="שיחת וידאו">🎥</button>
       <button class="iconbtn" id="star" aria-label="תן כוכב" title="תודה – תן כוכב">⭐</button></div>
     <div class="msgs" id="ms"></div>
+    <div class="quick" id="qk">${['היי! 👋','מתי נוח לך?','תודה רבה! 🙏','יש לי שאלה 🤔','בוא נדבר בווידאו 🎥','הבנתי! 💡'].map(q => `<button>${q}</button>`).join('')}</div>
     <div class="composer"><button class="iconbtn" id="cal" aria-label="קביעת מפגש" title="קביעת מפגש">📅</button>
       <textarea id="tx" placeholder="כתוב הודעה…" rows="1" aria-label="הודעה"></textarea>
       <button class="iconbtn send" id="sd" aria-label="שליחה">➤</button></div></div>`;
@@ -519,8 +540,9 @@ function renderChat(cid){
   $('#vc').onclick = () => chat && startCall(B, cid, me, otherObj());
   const tx = $('#tx');
   const send = async () => { const t = tx.value.trim(); if(!t) return; tx.value = ''; tx.style.height = '';
-    try { await B.send(cid, {from:myId, type:'text', text:t}); } catch(e){ tx.value = t; toast(errMsg(e)); } };
+    try { await B.send(cid, {from:myId, type:'text', text:t}); markDay('msgDay'); } catch(e){ tx.value = t; toast(errMsg(e)); } };
   $('#sd').onclick = send;
+  $('#qk').onclick = e => { const b = e.target.closest('button'); if(!b) return; tx.value = b.textContent; send(); vibrate(8); };
   tx.onkeydown = e => { if(e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer:coarse)').matches){ e.preventDefault(); send(); } };
   tx.oninput = () => { tx.style.height = 'auto'; tx.style.height = Math.min(tx.scrollHeight,120) + 'px'; };
   $('#star').onclick = async () => {
@@ -796,6 +818,36 @@ function renderIntro(done){
   draw();
 }
 
+
+/* =============== v5: streak week, quests, splash =============== */
+
+function hideSplash(){
+  const sp = $('#splash'); if(!sp || sp.dataset.out) return; sp.dataset.out = 1;
+  setTimeout(() => { sp.classList.add('out'); setTimeout(() => sp.remove(), 500); }, Math.max(0, 1100 - performance.now()));
+}
+function markDay(k){ const t = today(); if(me?.[k] === t) return; me[k] = t; B.saveUser(myId, {[k]: t}).catch(() => {}); }
+function weekStrip(){
+  const days = new Set(me.days || []);
+  return `<div class="week">${Array.from({length:7}, (_,i) => { const d = new Date(Date.now() - (6-i)*864e5), k = today(d);
+    return `<div class="${days.has(k) ? 'on' : ''} ${i === 6 ? 'today' : ''}"><span>${days.has(k) ? '🔥' : ''}</span>${DAYS[d.getDay()]}</div>`; }).join('')}</div>`;
+}
+function questsHtml(){
+  const t = today(), tc = todayCount(me);
+  const Q = [['📚','2 תרגולים היום', Math.min(tc,2), 2], ['🕹️','משחק ארקייד אחד', me.arcDay === t ? 1 : 0, 1], ['💬','הודעה לחברותא', me.msgDay === t ? 1 : 0, 1]];
+  const all = Q.every(q => q[2] >= q[3]), claimed = me.chestDay === t;
+  return `<div class="card"><div class="row between"><b class="fred big">🎯 משימות היום</b><button class="chest ${claimed ? 'open' : all ? 'ready' : ''}" id="chest" aria-label="תיבת פרס">${claimed ? '📭' : '🎁'}</button></div>
+    ${Q.map(q => { const ok = q[2] >= q[3]; return `<div class="quest ${ok ? 'done' : ''}"><div class="qi">${ok ? '✓' : q[0]}</div><div class="grow"><div class="small" style="font-weight:700">${q[1]}</div><div class="prog" style="height:9px;margin-top:3px"><i style="width:${q[2]/q[3]*100}%;background:${ok ? 'var(--grn)' : 'var(--yel)'}"></i></div></div><span class="small muted">${q[2]}/${q[3]}</span></div>`; }).join('')}
+    <div class="small muted" style="margin-top:4px">${claimed ? 'פתחת את התיבה של היום! מחר מחכה תיבה חדשה 🌙' : all ? 'לחץ על התיבה ותקבל 15 ⭐' : 'סיים את שלוש המשימות ופתח את התיבה: 15 ⭐'}</div></div>`;
+}
+async function openChest(){
+  const t = today(), tc = todayCount(me), all = tc >= 2 && me.arcDay === t && me.msgDay === t;
+  if(me.chestDay === t) return toast('כבר פתחת את התיבה היום 🌙');
+  if(!all) return toast('קודם צריך לסיים את שלוש המשימות 💪');
+  me.chestDay = t; me.gameStars = (me.gameStars||0) + 15; pendingFly += 15;
+  try { await B.saveUser(myId, {chestDay:t, gameStars:me.gameStars}); } catch {}
+  confetti(); sound('win'); vibrate([30,60,30]); toast('🎁 קיבלת 15 כוכבים!'); renderMain(); setTimeout(checkBadges, 900);
+}
+
 /* =============== boot =============== */
 
 function enterApp(){
@@ -815,14 +867,15 @@ function enterApp(){
 async function boot(){
   deco();
   try { B = window.CHAVRUTA_FIREBASE ? await firebaseBackend(window.CHAVRUTA_FIREBASE) : localBackend(); }
-  catch(e){ console.error(e); app.innerHTML = '<div class="page center"><div class="brand">חברותא</div><div class="card empty">לא הצלחנו להתחבר. בדוק את החיבור לאינטרנט.<br><button class="btn sm" onclick="location.reload()" style="margin-top:12px">נסה שוב</button></div></div>'; return; }
+  catch(e){ console.error(e); hideSplash(); app.innerHTML = '<div class="page center"><div class="brand">חברותא</div><div class="card empty">לא הצלחנו להתחבר. בדוק את החיבור לאינטרנט.<br><button class="btn sm" onclick="location.reload()" style="margin-top:12px">נסה שוב</button></div></div>'; return; }
   B.onAuth(async uid => {
     unsubChats && unsubChats(); unsubMe && unsubMe(); unsubChats = unsubMe = null; cleanupView();
     myId = uid; me = null; chats = []; tab = firstTab || 'home'; firstTab = null;
     isAdm = false;
-    if(!uid) return localStorage.getItem('cv_intro') ? renderAuth() : renderIntro(() => renderAuth('register'));
-    app.innerHTML = '<div class="page center"><div class="rings"><i></i><i></i></div><div class="brand">חברותא</div><div class="spin"></div></div>';
+    if(!uid){ hideSplash(); return localStorage.getItem('cv_intro') ? renderAuth() : renderIntro(() => renderAuth('register')); }
+    app.innerHTML = '<div class="page center"><img class="logo" src="logo.svg" alt=""><div class="brand">חברותא</div><div class="spin"></div></div>';
     try { me = await B.getUser(uid); } catch(e){ console.error(e); }
+    hideSplash();
     if(!me || !me.name){ me = null; return renderOnboard(); }
     enterApp();
   });

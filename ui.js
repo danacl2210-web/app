@@ -93,3 +93,8 @@ export function flyStars(n = 6){
     setTimeout(() => { s.remove(); target.classList.remove('bump'); void target.offsetWidth; target.classList.add('bump'); }, 820);
   }, i * 90);
 }
+
+// הדמות של חברותא: שתי טבעות עם עיניים. מצבים: '' / happy / sad / wow
+export const mascot = (mood = '', size = 1) =>
+  `<div class="masc ${mood}" style="--s:${size}" aria-hidden="true"><i class="mr1"><b></b></i><i class="mr2"><b></b></i><span class="mm"></span></div>`;
+export function setMood(el, mood){ if(!el) return; el.classList.remove('happy','sad','wow'); void el.offsetWidth; if(mood) el.classList.add(mood); }

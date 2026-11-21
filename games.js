@@ -1,5 +1,5 @@
 // מיני משחקים בסגנון דואולינגו: שיעורים במסלול, נכון/לא נכון, התאמת זוגות, ואתגר 60 שניות
-import { esc, shuffle, sound, confetti, vibrate, floatXP } from './ui.js';
+import { esc, shuffle, sound, confetti, vibrate, floatXP, mascot, setMood, countUp } from './ui.js';
 
 export const ICON = {'מתמטיקה':'📐','פיזיקה':'⚛️','אנגלית':'🇬🇧','לשון':'✍️','היסטוריה':'🏛️','ביולוגיה':'🧬','כימיה':'🧪','מדעי המחשב':'💻','אזרחות':'⚖️','תנ״ך':'📜','ספרות':'📖','ערבית':'🌙'};
 
@@ -91,19 +91,19 @@ function overlay(){
 
 export function startLesson({subject, title, onFinish}){
   const steps = buildLesson(subject), el = overlay();
-  let i = 0, hearts = 3, correct = 0, mistakes = 0, t0 = Date.now();
+  let i = 0, hearts = 3, correct = 0, mistakes = 0, combo = 0, t0 = Date.now();
   el.innerHTML = `<div class="lhead"><button class="link" id="lx" aria-label="יציאה" style="font-size:24px;color:var(--mut)">✕</button>
-    <div class="prog"><i id="pg" style="width:0"></i></div><b class="fred" id="hr" style="color:var(--pink)">❤️ 3</b></div>
+    <div class="prog"><i id="pg" style="width:0"></i></div><b class="fred fire pill" id="cb" style="min-width:58px;justify-content:center"></b><b class="fred" id="hr" style="color:var(--pink)">❤️ 3</b></div>
     <div class="lbody" id="lb"></div>
-    <div class="lfoot" id="lf"><div class="fb" id="fbt"></div><button class="btn grn" id="lc" disabled>בדיקה</button></div>`;
+    <div class="lfoot" id="lf"><div class="fbrow">${mascot('', .42)}<div class="fb" id="fbt"></div></div><button class="btn grn" id="lc" disabled>בדיקה</button></div>`;
   const lb = el.querySelector('#lb'), lf = el.querySelector('#lf'), lc = el.querySelector('#lc'), fbt = el.querySelector('#fbt');
   el.querySelector('#lx').onclick = () => { if(confirm('לצאת מהשיעור? ההתקדמות לא תישמר')) el.remove(); };
   let check = null;
   const setProg = () => el.querySelector('#pg').style.width = (i / steps.length * 100) + '%';
   const feedback = (ok, msg) => {
-    lf.className = 'lfoot ' + (ok ? 'ok' : 'bad'); fbt.textContent = msg; lc.disabled = false;
+    lf.className = 'lfoot ' + (ok ? 'ok' : 'bad'); fbt.textContent = msg; lc.disabled = false; setMood(lf.querySelector('.masc'), ok ? 'happy' : 'sad');
     lc.textContent = 'המשך'; lc.className = 'btn ' + (ok ? 'grn' : 'pink'); sound(ok ? 'ok' : 'bad'); vibrate(ok ? 20 : [40,40,40]);
-    if(ok){ correct++; const r = lb.querySelector('.opt.right')?.getBoundingClientRect(); floatXP(pick(['+1 ⭐','🔥','✨','💪']), r ? r.left + r.width/2 : null, r ? r.top : null); } else { mistakes++; hearts--; el.querySelector('#hr').textContent = '❤️ ' + hearts; }
+    if(ok){ combo++; if(combo >= 2){ const c = el.querySelector('#cb'); c.textContent = `🔥 x${combo}`; c.classList.remove('bump'); void c.offsetWidth; c.classList.add('bump'); } correct++; const r = lb.querySelector('.opt.right')?.getBoundingClientRect(); floatXP(pick(['+1 ⭐','🔥','✨','💪']), r ? r.left + r.width/2 : null, r ? r.top : null); } else { mistakes++; hearts--; combo = 0; el.querySelector('#cb').textContent = ''; el.querySelector('#hr').textContent = '❤️ ' + hearts; }
     check = () => { i++; hearts <= 0 ? fail() : next(); };
   };
   function next(){
@@ -138,7 +138,7 @@ export function startLesson({subject, title, onFinish}){
       lb.onclick = e => { const b = e.target.closest('.opt'); if(!b || b.classList.contains('gone')) return;
         if(!a || a.dataset.s === b.dataset.s){ lb.querySelectorAll('.opt.sel').forEach(x => x.classList.remove('sel')); b.classList.add('sel'); a = b; return; }
         if(a.dataset.k === b.dataset.k){ [a,b].forEach(x => { x.classList.remove('sel'); x.classList.add('right'); setTimeout(() => x.classList.add('gone'), 250); }); sound('ok'); a = null;
-          if(--left === 0){ lc.disabled = false; lf.className = 'lfoot ok'; fbt.textContent = miss ? 'הצלחת!' : 'מושלם!'; lc.textContent = 'המשך';
+          if(--left === 0){ lc.disabled = false; lf.className = 'lfoot ok'; setMood(lf.querySelector('.masc'), 'happy'); fbt.textContent = miss ? 'הצלחת!' : 'מושלם!'; lc.textContent = 'המשך';
             if(miss) mistakes++; else correct++; check = () => { i++; next(); }; }
         } else { const x = a; [x,b].forEach(y => { y.classList.remove('sel'); y.classList.add('wrong'); setTimeout(() => y.classList.remove('wrong'), 400); }); sound('bad'); miss = true; a = null; }
       };
@@ -146,7 +146,7 @@ export function startLesson({subject, title, onFinish}){
   }
   lc.onclick = () => check && check();
   function fail(){
-    lb.innerHTML = `<div class="result"><div class="medal">💔</div><h2>נגמרו הלבבות</h2><p class="muted">זה בסדר! כל טעות היא חלק מהלמידה. אולי כדאי לבקש עזרה מחברותא ב${esc(subject)}?</p></div>`;
+    lb.innerHTML = `<div class="result">${mascot('sad', 1.1)}<h2>נגמרו הלבבות</h2><p class="muted">זה בסדר! כל טעות היא חלק מהלמידה. אולי כדאי לבקש עזרה מחברותא ב${esc(subject)}?</p></div>`;
     lf.className = 'lfoot'; lc.disabled = false; lc.className = 'btn'; lc.textContent = 'נסה שוב';
     check = () => { el.remove(); startLesson({subject, title, onFinish}); };
     onFinish?.({passed:false, stars:0});
@@ -154,12 +154,13 @@ export function startLesson({subject, title, onFinish}){
   function finish(){
     const perfect = mistakes === 0, stars = 5 + (perfect ? 5 : 0) + hearts, secs = Math.round((Date.now() - t0) / 1000);
     sound('win'); confetti(); vibrate([30,60,30]);
-    lb.innerHTML = `<div class="result"><div class="medal">${perfect ? '🏆' : '⭐'}</div>
+    lb.innerHTML = `<div class="result"><div class="row" style="justify-content:center;align-items:flex-end;gap:4px">${mascot('wow', 1.1)}<div class="medal" style="font-size:64px">${perfect ? '🏆' : '⭐'}</div></div>
       <h2 style="font-size:28px;color:var(--yel)">${perfect ? 'שיעור מושלם!' : 'השיעור הושלם!'}</h2>
-      <div class="statrow"><div class="stat"><small>כוכבים</small><b>⭐ ${stars}</b></div>
-      <div class="stat" style="border-color:var(--grn)"><small style="background:var(--grn)">דיוק</small><b>${Math.round(correct/(correct+mistakes)*100)}%</b></div>
+      <div class="statrow"><div class="stat"><small>כוכבים</small><b>⭐ <span data-to="${stars}">0</span></b></div>
+      <div class="stat" style="border-color:var(--grn)"><small style="background:var(--grn)">דיוק</small><b><span data-to="${Math.round(correct/(correct+mistakes)*100)}">0</span>%</b></div>
       <div class="stat" style="border-color:var(--sky)"><small style="background:var(--sky)">זמן</small><b>${Math.floor(secs/60)}:${String(secs%60).padStart(2,'0')}</b></div></div></div>`;
     lf.className = 'lfoot'; lc.disabled = false; lc.className = 'btn grn'; lc.textContent = 'המשך';
+    countUp(lb);
     check = () => el.remove();
     onFinish?.({passed:true, stars, perfect});
   }
@@ -190,11 +191,96 @@ export function startSpeed({subjects, onFinish}){
   function end(){
     clearInterval(tick); done = true; sound('win'); if(score >= 10) confetti();
     lb.onclick = null;
-    lb.innerHTML = `<div class="result"><div class="medal">⚡</div><h2 style="font-size:28px;color:var(--yel)">${score} נקודות!</h2>
+    lb.innerHTML = `<div class="result">${mascot(score >= 10 ? 'wow' : '', 1)}<h2 style="font-size:28px;color:var(--yel)">${score} נקודות!</h2>
       <p class="muted">רצף הכי ארוך: ${best} · קיבלת ⭐ ${score}</p><button class="btn yel" id="ag">שוב!</button><button class="btn alt" id="cl">סיום</button></div>`;
     el.querySelector('#ag').onclick = () => startSpeed({subjects, onFinish});
     el.querySelector('#cl').onclick = () => el.remove();
     onFinish?.({score});
   }
   q();
+}
+
+// ===== משחק זיכרון: הופכים קלפים ומוצאים זוגות =====
+export function startMemory({subjects, onFinish}){
+  const el = overlay(), pool = (subjects?.length ? subjects : SUBJECTS);
+  let pairs = shuffle(BANK[pool[0]].p).slice(0,4);
+  for(const s of shuffle(pool.slice(1).concat(SUBJECTS))){ if(pairs.length >= 6) break; const p = pick(BANK[s].p); if(!pairs.some(x => x[0] === p[0])) pairs.push(p); }
+  const cards = shuffle(pairs.flatMap((p,k) => [{t:p[0],k},{t:p[1],k}]));
+  let open = [], moves = 0, found = 0, lock = false, t0 = Date.now();
+  el.innerHTML = `<div class="lhead"><button class="link" id="lx" style="font-size:24px;color:var(--mut)">✕</button>
+    <b class="fred big grow">🧠 זיכרון</b><span class="pill">🔄 <span id="mv">0</span></span><span class="pill timer" id="tm">0:00</span></div>
+    <div class="lbody"><div class="small muted fred" style="text-align:center">הפוך שני קלפים. מצא כל מושג עם הזוג שלו</div>
+    <div class="mem" id="mm">${cards.map((c,i) => `<button class="mc" data-i="${i}"><div class="mci"><div class="mf mback"><i></i><i></i></div><div class="mf mfront">${esc(c.t)}</div></div></button>`).join('')}</div></div>`;
+  const tick = setInterval(() => { const s = Math.floor((Date.now()-t0)/1000); el.querySelector('#tm').textContent = `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; }, 500);
+  el.querySelector('#lx').onclick = () => { clearInterval(tick); el.remove(); };
+  el.querySelector('#mm').onclick = e => {
+    const b = e.target.closest('.mc'); if(!b || lock || b.classList.contains('flip')) return;
+    b.classList.add('flip'); sound('ok'); vibrate(8); open.push(b);
+    if(open.length < 2) return;
+    moves++; el.querySelector('#mv').textContent = moves; lock = true;
+    const [a, c] = open, ka = cards[a.dataset.i].k, kc = cards[c.dataset.i].k;
+    if(ka === kc){ setTimeout(() => { a.classList.add('done'); c.classList.add('done'); floatXP('✨', innerWidth/2, innerHeight*.35); open = []; lock = false;
+        if(++found === pairs.length) finish(); }, 350); }
+    else setTimeout(() => { a.classList.add('nope'); c.classList.add('nope'); sound('bad');
+        setTimeout(() => { a.classList.remove('flip','nope'); c.classList.remove('flip','nope'); open = []; lock = false; }, 450); }, 650);
+  };
+  function finish(){
+    clearInterval(tick); const secs = Math.round((Date.now()-t0)/1000), stars = Math.max(5, 24 - (moves - pairs.length) * 2);
+    sound('win'); confetti();
+    el.querySelector('.lbody').innerHTML = `<div class="result">${mascot('wow', 1)}<h2 style="font-size:28px;color:var(--yel)">כל הכבוד!</h2>
+      <div class="statrow"><div class="stat"><small>כוכבים</small><b>⭐ ${stars}</b></div><div class="stat" style="border-color:var(--sky)"><small style="background:var(--sky)">מהלכים</small><b>${moves}</b></div>
+      <div class="stat" style="border-color:var(--grn)"><small style="background:var(--grn)">זמן</small><b>${Math.floor(secs/60)}:${String(secs%60).padStart(2,'0')}</b></div></div>
+      <button class="btn yel" id="ag">עוד סיבוב</button><button class="btn alt" id="cl">סיום</button></div>`;
+    el.querySelector('#ag').onclick = () => startMemory({subjects, onFinish});
+    el.querySelector('#cl').onclick = () => el.remove();
+    onFinish?.({stars, moves, secs});
+  }
+}
+
+// ===== בועות: פוצצו את הבועה עם התשובה הנכונה לפני שהיא בורחת =====
+export function startBubbles({subjects, onFinish}){
+  const el = overlay(), pool = (subjects?.length ? subjects : SUBJECTS).flatMap(s => BANK[s].q.map(q => [s,q]));
+  let lives = 3, score = 0, combo = 0, round = 0, over = false, cur = null;
+  el.innerHTML = `<div class="lhead"><button class="link" id="lx" style="font-size:24px;color:var(--mut)">✕</button>
+    <b class="fred big grow">🫧 בועות</b><span class="pill stars">⭐ <span id="sc">0</span></span><b class="fred" id="hr" style="color:var(--pink)">❤️❤️❤️</b></div>
+    <div class="bq card" id="bq"></div><div class="tank" id="tk"></div>`;
+  const tk = el.querySelector('#tk');
+  el.querySelector('#lx').onclick = () => { over = true; el.remove(); };
+  const hearts = () => el.querySelector('#hr').textContent = '❤️'.repeat(lives) + '🖤'.repeat(3 - lives);
+  function next(){
+    if(over) return; round++; tk.innerHTML = '';
+    const [s, q] = pick(pool), opts = shuffle(q.slice(1,5)), dur = Math.max(4.2, 8 - round * .25);
+    cur = q[1];
+    el.querySelector('#bq').innerHTML = `<div class="small muted">${ICON[s]||''} ${esc(s)}${combo >= 2 ? ` · <span class="fire">🔥 x${combo}</span>` : ''}</div><div class="fred big">${esc(q[0])}</div>`;
+    const cols = shuffle([8, 31, 54, 77]);
+    opts.forEach((o,i) => { const b = document.createElement('button'); b.className = 'bub'; b.textContent = o;
+      b.style.cssText = `left:${cols[i]}%;animation-duration:${dur + Math.random()*1.2}s,${1.6 + Math.random()}s;animation-delay:${i*.25}s,0s;--h:${[340,45,150,200][i]}`;
+      b.onclick = () => pop(b, o); if(o === cur) b.addEventListener('animationend', ev => { if(ev.animationName === 'rise2' && !over && b.isConnected) miss(); });
+      tk.appendChild(b); });
+  }
+  function burst(b, good){
+    const r = b.getBoundingClientRect();
+    for(let i = 0; i < 10; i++){ const p = document.createElement('i'); p.className = 'shard'; const a = i/10*Math.PI*2;
+      p.style.cssText = `left:${r.left + r.width/2}px;top:${r.top + r.height/2}px;--dx:${Math.cos(a)*60}px;--dy:${Math.sin(a)*60}px;background:${good ? 'var(--grn)' : 'var(--pink)'}`;
+      document.body.appendChild(p); setTimeout(() => p.remove(), 600); }
+  }
+  function pop(b, o){
+    if(over || !b.isConnected) return; burst(b, o === cur);
+    if(o === cur){ combo++; const add = combo >= 3 ? 2 : 1; score += add; sound('ok'); vibrate(12); floatXP(`+${add}`, b.getBoundingClientRect().left + 40, b.getBoundingClientRect().top);
+      el.querySelector('#sc').textContent = score; b.remove(); setTimeout(next, 350); }
+    else { b.classList.add('bad'); setTimeout(() => b.remove(), 200); combo = 0; lose(); }
+  }
+  function miss(){ combo = 0; toastIn('⏰ הבועה ברחה! התשובה: ' + cur); lose(true); }
+  function lose(newQ){ lives--; hearts(); sound('bad'); vibrate([40,40,40]); if(lives <= 0) return end(); if(newQ) setTimeout(next, 900); }
+  function toastIn(t){ const d = document.createElement('div'); d.className = 'toast'; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 1600); }
+  function end(){
+    over = true; tk.innerHTML = ''; sound('win'); if(score >= 8) confetti();
+    el.querySelector('#bq').outerHTML = '';
+    tk.outerHTML = `<div class="lbody"><div class="result">${mascot(score >= 5 ? 'wow' : '', 1)}<h2 style="font-size:28px;color:var(--yel)">${score} נקודות!</h2>
+      <p class="muted">שאלות: ${round} · קיבלת ⭐ ${score}</p><button class="btn yel" id="ag">שוב!</button><button class="btn alt" id="cl">סיום</button></div></div>`;
+    el.querySelector('#ag').onclick = () => startBubbles({subjects, onFinish});
+    el.querySelector('#cl').onclick = () => el.remove();
+    onFinish?.({score});
+  }
+  hearts(); next();
 }
