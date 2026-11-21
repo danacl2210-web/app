@@ -369,6 +369,16 @@ h3{font-size:18px}
 .logo{width:92px;height:92px;display:block;margin:0 auto;filter:drop-shadow(0 10px 24px rgba(79,178,255,.35));animation:logoin .8s cubic-bezier(.2,1.6,.4,1) both}
 .logo.big{width:150px;height:150px;animation:logoin .8s cubic-bezier(.2,1.6,.4,1) both,mbob 2.6s ease-in-out .8s infinite}
 @keyframes logoin{from{opacity:0;transform:scale(.4) rotate(-12deg)}}
+
+/* ===== v6: tour, welcome, thanks ===== */
+.tour{position:fixed;inset:0;z-index:95}
+.tour .spot{position:fixed;border-radius:18px;box-shadow:0 0 0 9999px rgba(5,6,26,.78);border:2px solid var(--yel);transition:all .35s cubic-bezier(.3,1.3,.5,1);animation:spotp 1.4s ease-in-out infinite}
+@keyframes spotp{50%{border-color:var(--grn)}}
+.tour .tip{position:fixed;left:16px;right:16px;max-width:480px;margin:0 auto;background:linear-gradient(180deg,#2a2470,#1d2150);border:2px solid var(--line);border-radius:22px;padding:16px;animation:rise .35s cubic-bezier(.2,.9,.3,1.2)}
+.welcome{background:linear-gradient(135deg,#3b2f0e,#2a2470);border:1px solid #6b5a1c}
+.welcome ul{margin:8px 0 0;padding-right:20px}.welcome li{margin:3px 0}
+.thx{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:8px 12px;margin-top:8px;font-size:14px}
+.thx b{color:var(--yel)}
 canvas#cf{position:fixed;inset:0;pointer-events:none;z-index:70}
 </style>
 </head>
