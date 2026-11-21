@@ -6,7 +6,7 @@ export const colorOf = id => COLORS[[...String(id)].reduce((a,c) => a + c.charCo
 export const avatar = (id,name,size=46) => `<div class="avatar" style="background:${colorOf(id)};width:${size}px;height:${size}px;font-size:${size*.42}px">${esc((name||'?').trim()[0]||'?')}</div>`;
 export const shuffle = a => { a = a.slice(); for(let i = a.length - 1; i > 0; i--){ const j = Math.floor(Math.random()*(i+1)); [a[i],a[j]] = [a[j],a[i]]; } return a; };
 
-export function toast(t){ const el = document.createElement('div'); el.className = 'toast'; el.textContent = t; document.body.appendChild(el); setTimeout(() => el.remove(), 2600); }
+export function toast(t){ const el = document.createElement('div'); el.className = 'toast'; el.setAttribute('role','status'); el.setAttribute('aria-live','polite'); el.textContent = t; document.body.appendChild(el); setTimeout(() => el.remove(), 2600); }
 
 export function sheet(html, onMount){
   const bg = document.createElement('div'); bg.className = 'sheet-bg';
@@ -92,4 +92,58 @@ export function flyStars(n = 6){
     requestAnimationFrame(() => { const r = s.getBoundingClientRect(); s.style.transform = `translate(${t.left + t.width/2 - r.left - 13}px, ${t.top - r.top}px) scale(.5)`; s.style.opacity = '.2'; });
     setTimeout(() => { s.remove(); target.classList.remove('bump'); void target.offsetWidth; target.classList.add('bump'); }, 820);
   }, i * 90);
+}
+
+// הדמות של חברותא: שתי טבעות עם עיניים. מצבים: '' / happy / sad / wow
+export const mascot = (mood = '', size = 1) =>
+  `<div class="masc ${mood}" style="--s:${size}" aria-hidden="true"><i class="mr1"><b></b></i><i class="mr2"><b></b></i><span class="mm"></span></div>`;
+export function setMood(el, mood){ if(!el) return; el.classList.remove('happy','sad','wow'); void el.offsetWidth; if(mood) el.classList.add(mood); }
+
+// תמונה לשיתוף הישג (וואטסאפ, אינסטגרם...)
+export async function shareCard({emoji = '🏆', title = '', sub = '', name = ''}){
+  try { await document.fonts?.ready; } catch {}
+  const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#5b3fd6'); g.addColorStop(.55, '#2b6fd8'); g.addColorStop(1, '#1aa3a0');
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  x.globalAlpha = .18; x.fillStyle = '#fff'; x.beginPath(); x.arc(180, 160, 260, 0, 7); x.fill(); x.beginPath(); x.arc(950, 1200, 300, 0, 7); x.fill(); x.globalAlpha = 1;
+  ['📐','⚛️','📚','✏️','🧪','⭐'].forEach((e,i) => { x.globalAlpha = .25; x.font = '70px serif'; x.fillText(e, 80 + (i*170) % 900, 260 + (i*290) % 900); }); x.globalAlpha = 1;
+  // כרטיס לבן
+  x.fillStyle = 'rgba(14,16,40,.55)'; const r = 60, bx = 90, by = 300, bw = W-180, bh = 760;
+  x.beginPath(); x.roundRect ? x.roundRect(bx, by, bw, bh, r) : x.rect(bx, by, bw, bh); x.fill();
+  x.textAlign = 'center'; x.direction = 'rtl'; x.fillStyle = '#fff';
+  x.font = '240px serif'; x.fillText(emoji, W/2, by + 300);
+  x.font = '700 84px Fredoka, Assistant, sans-serif'; x.fillText(title, W/2, by + 440);
+  x.font = '600 50px Assistant, sans-serif'; x.fillStyle = '#ffd65c'; x.fillText(sub, W/2, by + 530);
+  if(name){ x.fillStyle = 'rgba(255,255,255,.85)'; x.font = '600 44px Assistant, sans-serif'; x.fillText(name, W/2, by + 640); }
+  // לוגו ושם
+  await new Promise(res => { const im = new Image(); im.onload = () => { x.drawImage(im, W/2 - 90, 80, 180, 180); res(); }; im.onerror = res; im.src = 'logo.svg'; });
+  x.fillStyle = '#fff'; x.font = '700 72px Fredoka, Assistant, sans-serif'; x.fillText('חברותא', W/2, 1160);
+  x.font = '600 40px Assistant, sans-serif'; x.fillStyle = 'rgba(255,255,255,.85)'; x.fillText('תלמידים עוזרים לתלמידים · chavruta-il-app.vercel.app', W/2, 1230);
+  const blob = await new Promise(res => c.toBlob(res, 'image/png'));
+  const file = new File([blob], 'chavruta.png', {type:'image/png'});
+  const text = `${title} ${sub} בחברותא! בואו גם: https://chavruta-il-app.vercel.app/download.html`;
+  try {
+    if(navigator.canShare?.({files:[file]})) return await navigator.share({files:[file], text});
+  } catch(e){ if(e?.name === 'AbortError') return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'chavruta.png'; a.click();
+  toast('התמונה נשמרה. אפשר לשתף אותה 📤');
+}
+
+// סיור מודרך: מאירים כל לשונית עם הסבר קצר
+export function tour(steps, done){
+  let i = 0;
+  const el = document.createElement('div'); el.className = 'tour'; document.body.appendChild(el);
+  const draw = () => {
+    const s = steps[i], t = document.querySelector(s.sel); if(!t){ next(); return; }
+    const r = t.getBoundingClientRect(), pad = 6;
+    el.innerHTML = `<div class="spot" style="left:${r.left-pad}px;top:${r.top-pad}px;width:${r.width+pad*2}px;height:${r.height+pad*2}px"></div>
+      <div class="tip" style="bottom:${innerHeight - r.top + 18}px">
+        <div class="row" style="gap:10px;align-items:flex-start">${mascot('happy', .38)}<div class="grow"><b class="fred big">${esc(s.title)}</b><div>${esc(s.text)}</div></div></div>
+        <div class="row between" style="margin-top:12px"><button class="link" data-x>דלג</button><span class="small muted">${i+1}/${steps.length}</span><button class="btn sm" data-n>${i < steps.length-1 ? 'הבא' : 'יאללה! 🚀'}</button></div></div>`;
+    el.querySelector('[data-n]').onclick = next; el.querySelector('[data-x]').onclick = end;
+  };
+  const next = () => { i++; i >= steps.length ? end() : draw(); };
+  const end = () => { el.remove(); done?.(); };
+  draw();
 }
