@@ -1,0 +1,54 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function signedIn() { return request.auth != null; }
+    function isAdmin() { return signedIn() && exists(/databases/$(db)/documents/admins/$(request.auth.uid)); }
+    function memberOf(cid) { return signedIn() && request.auth.uid in get(/databases/$(db)/documents/chats/$(cid)).data.members; }
+
+    // פרופילים: כל משתמש מחובר רואה; רק אתה עורך את שלך (בלי לשנות לעצמך את כוכבי העזרה);
+    // אחרים יכולים רק להוסיף לך כוכב עזרה אחד בכל פעם
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.auth.uid == uid && request.resource.data.get('stars', 0) == 0;
+      allow update: if signedIn() && (
+        (request.auth.uid == uid && request.resource.data.get('stars', 0) == resource.data.get('stars', 0))
+        || (request.auth.uid != uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stars'])
+            && request.resource.data.stars == resource.data.get('stars', 0) + 1));
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    // צ׳אטים: רק שני המשתתפים רואים וכותבים
+    match /chats/{cid} {
+      allow read: if isAdmin() || (signedIn() && (resource == null || request.auth.uid in resource.data.members));
+      allow create: if signedIn() && request.auth.uid in request.resource.data.members && request.resource.data.members.size() == 2;
+      allow update: if signedIn() && request.auth.uid in resource.data.members && request.resource.data.members == resource.data.members;
+      match /messages/{mid} {
+        allow read: if memberOf(cid);
+        allow create: if memberOf(cid) && request.resource.data.from == request.auth.uid
+                      && request.resource.data.text is string && request.resource.data.text.size() <= 2000;
+      }
+    }
+
+    // מנהלים: נקבעים רק מתוך קונסולת Firebase
+    match /admins/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+    }
+
+    // דירוגי האפליקציה: כל אחד רואה, כל משתמש כותב רק את הדירוג שלו
+    match /ratings/{uid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && request.auth.uid == uid && request.resource.data.stars is int
+                   && request.resource.data.stars >= 1 && request.resource.data.stars <= 5
+                   && request.resource.data.get('text', '').size() <= 400;
+    }
+
+    // שיחות וידאו (רק נתוני חיבור, הווידאו עצמו לא עובר כאן)
+    match /calls/{cid} {
+      allow read, write: if memberOf(cid);
+      match /{role}/{doc} {
+        allow read, write: if memberOf(cid);
+      }
+    }
+  }
+}
