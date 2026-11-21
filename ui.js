@@ -147,3 +147,14 @@ export function tour(steps, done){
   const end = () => { el.remove(); done?.(); };
   draw();
 }
+
+// tap ripple on buttons and cards
+document.addEventListener('pointerdown', e => {
+  const t = e.target.closest('.btn,.gamecard,.arc,.ideabar'); if(!t || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const r = t.getBoundingClientRect(), d = Math.max(r.width, r.height);
+  if(getComputedStyle(t).position === 'static') t.style.position = 'relative';
+  t.style.overflow = 'hidden';
+  const s = document.createElement('span'); s.className = 'rip';
+  s.style.cssText = `width:${d}px;height:${d}px;left:${e.clientX - r.left - d/2}px;top:${e.clientY - r.top - d/2}px`;
+  t.appendChild(s); setTimeout(() => s.remove(), 600);
+}, {passive:true});

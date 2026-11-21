@@ -376,8 +376,9 @@ function renderHome(){
     <div class="card gamecard" id="gospeed"><div class="ic" style="background:var(--yel)">⚡</div><div class="grow"><b class="fred big">אתגר 60 שניות</b><div class="small muted">נכון או לא נכון, הכי מהר שאפשר</div></div><span class="big">←</span></div>
     <div id="onl"></div>
     ${!me.rated && (Object.keys(me.progress||{}).length || chats.length) ? `<div class="card gamecard" id="rate" style="background:linear-gradient(120deg,#3b2f0e,#1d2150)"><div class="ic" style="background:var(--yel)">💛</div><div class="grow"><b class="fred big">איך חברותא בשבילך?</b><div class="small muted">דרג אותנו בשתי שניות</div></div><span class="stars big">★★★★★</span></div>` : ''}
+    <button class="ideabar" id="hidea">💡 <b>יש לך רעיון לשיפור?</b> <span class="muted">ספר לנו ←</span></button>
   </div>`;
-  $('#rate') && ($('#rate').onclick = rateSheet);
+  $('#rate') && ($('#rate').onclick = rateSheet); $('#hidea').onclick = ideaSheet;
   $('#chest').onclick = openChest;
   $('#welx') && ($('#welx').onclick = () => { me.welcomed = true; B.saveUser(myId, {welcomed:true}).catch(() => {}); $('#wel')?.remove(); });
   B.listUsers().then(us => { const on = us.filter(u => u.id !== myId && u.name && online(u)).slice(0,8), el = $('#onl'); if(!el || !on.length) return;
