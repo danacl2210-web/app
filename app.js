@@ -3,6 +3,10 @@
 import { $, esc, avatar, toast, sheet, confetti, sound, deco, vibrate, countUp, flyStars, mascot, shareCard, tour } from './ui.js';
 import { ICON, SUBJECTS, LESSONS_PER_SUBJECT, startLesson, startSpeed, startMemory, startBubbles } from './games.js';
 import { startCall as _startCall, answerCall as _answerCall, declineCall, inCall } from './video.js';
+import { TOPICS, tkey, ttopic, tsubject, topicsOf } from './topics.js';
+import { createWelfare } from './welfare.js';
+import { createQuick } from './quick.js';
+import { createGroups, inGroupCall } from './group.js';
 const countCall = () => { me.calls = (me.calls||0) + 1; B.saveUser(myId, {calls: me.calls}).catch(() => {}); setTimeout(checkBadges, 4000); };
 const startCall = (...a) => { countCall(); B.incChat(a[1], 'callCount').catch(() => {}); return _startCall(...a); };
 const answerCall = (...a) => { countCall(); return _answerCall(...a); };
@@ -65,7 +69,31 @@ async function firebaseBackend(cfg){
     async isAdmin(uid){ try { return (await F.getDoc(F.doc(db,'admins',uid))).exists(); } catch { return false; } },
     async listAllChats(){ const s = await F.getDocs(F.query(F.collection(db,'chats'), F.limit(3000))); return s.docs.map(chatOf); },
     // שיחות וידאו
-    async callReset(cid){ for(const r of ['caller','callee']){ const s = await F.getDocs(F.collection(db,'calls',cid,r)); await Promise.all(s.docs.map(d => F.deleteDoc(d.ref))); } },
+    // משחקים בשיחה, עזרה נקודתית וקבוצות
+    gameSet: (cid,d,replace) => F.setDoc(F.doc(db,'calls',cid,'game','state'), d, replace ? {} : {merge:true}),
+    onGame: (cid,cb) => F.onSnapshot(F.doc(db,'calls',cid,'game','state'), s => cb(s.exists() ? s.data() : null)),
+    async addQuick(d){ return (await F.addDoc(F.collection(db,'quick'), d)).id; },
+    onQuick: cb => F.onSnapshot(F.query(F.collection(db,'quick'), F.where('at','>',Date.now()-12*3600e3), F.limit(100)), s => cb(s.docs.map(d => ({id:d.id, ...d.data()})))),
+    claimQuick: (id,patch) => F.updateDoc(F.doc(db,'quick',id), patch),
+    async createGroup(d){ return (await F.addDoc(F.collection(db,'groups'), d)).id; },
+    onGroups: cb => F.onSnapshot(F.query(F.collection(db,'groups'), F.where('createdAt','>',Date.now()-14*864e5), F.limit(100)), s => cb(s.docs.map(d => ({id:d.id, ...d.data()})))),
+    onGroup: (gid,cb) => F.onSnapshot(F.doc(db,'groups',gid), s => cb(s.exists() ? {id:gid, ...s.data()} : null)),
+    joinGroup: (gid,uid,name) => F.updateDoc(F.doc(db,'groups',gid), {members:F.arrayUnion(uid), ['names.'+uid]:name}),
+    leaveGroup: (gid,uid) => F.updateDoc(F.doc(db,'groups',gid), {members:F.arrayRemove(uid), ['names.'+uid]:F.deleteField(), ['live.'+uid]:F.deleteField()}),
+    deleteGroup: gid => F.deleteDoc(F.doc(db,'groups',gid)),
+    gSend: (gid,m) => F.addDoc(F.collection(db,'groups',gid,'messages'), {...m, at:F.serverTimestamp()}),
+    onGMsgs: (gid,cb) => F.onSnapshot(F.query(F.collection(db,'groups',gid,'messages'), F.orderBy('at'), F.limitToLast(200)), s => cb(s.docs.map(d => { const x = data(d); return {id:d.id, ...x, at:ms(x.at)}; }))),
+    gLive: (gid,uid,v) => F.updateDoc(F.doc(db,'groups',gid), {['live.'+uid]: v === null ? F.deleteField() : v}),
+    sigSet: (gid,pid,d,replace) => F.setDoc(F.doc(db,'groups',gid,'sig',pid), d, replace ? {} : {merge:true}),
+    sigCand: (gid,pid,field,c) => F.setDoc(F.doc(db,'groups',gid,'sig',pid), {[field]:F.arrayUnion(c)}, {merge:true}),
+    onSig: (gid,pid,cb) => F.onSnapshot(F.doc(db,'groups',gid,'sig',pid), s => cb(s.exists() ? s.data() : null)),
+    gBoardAdd: (gid,d) => F.addDoc(F.collection(db,'groups',gid,'board'), d),
+    onGBoard: (gid,cb) => F.onSnapshot(F.collection(db,'groups',gid,'board'), s => cb(s.docs.map(d => d.data()))),
+    // אימות טלפון אמיתי ב-SMS (דורש הפעלה ב-Firebase, ראו README)
+    phoneAuth: !!window.CHAVRUTA_PHONE_AUTH,
+    async sendRealCode(e164){ window._rcv ||= new A.RecaptchaVerifier(auth, 'rcv', {size:'invisible'}); window._conf = await A.signInWithPhoneNumber(auth, e164, window._rcv); },
+    async confirmRealCode(code, email, pw){ const r = await window._conf.confirm(code); await A.linkWithCredential(r.user, A.EmailAuthProvider.credential(email, pw)); },
+    async callReset(cid){ F.deleteDoc(F.doc(db,'calls',cid,'game','state')).catch(() => {}); for(const r of ['caller','callee','board']){ const s = await F.getDocs(F.collection(db,'calls',cid,r)); await Promise.all(s.docs.map(d => F.deleteDoc(d.ref))); } },
     callSet: (cid,d,overwrite) => F.setDoc(F.doc(db,'calls',cid), d, overwrite ? {} : {merge:true}),
     async getCall(cid){ const s = await F.getDoc(F.doc(db,'calls',cid)); return s.exists() ? s.data() : null; },
     onCall: (cid,cb) => F.onSnapshot(F.doc(db,'calls',cid), s => cb(s.exists() ? s.data() : null)),
@@ -87,6 +115,12 @@ function localBackend(){
      ['s4','דניאל','י״ב',['היסטוריה','אזרחות','תנ״ך'],['אנגלית'],'עברתי בגרות בהיסטוריה עם 100',27],
     ].forEach(([id,name,grade,help,need,bio,stars],i) => S.users[id] = {name,grade,help,need,bio,stars,hobbies:[['ציור ואומנות','מוזיקה','ריקוד'],['תכנות','כדורגל','גיימינג'],['בעלי חיים','קריאה','טבע'],['כדורגל','כדורסל','סרטים וסדרות']][i],gameStars:i*40+15,streak:i+2,lastDay:today(),avail:all.filter((_,k) => (k+i)%3),seed:true,createdAt:Date.now()});
   }
+  Object.values(S.users).forEach(u => { if(u.seed) u.friends = true; });
+  S.quick ||= []; S.groups ||= {}; S.gmsgs ||= {}; S.sig ||= {}; S.gboard ||= {};
+  S.quick = S.quick.filter(r => r.id !== 'qseed');
+  S.quick.push({id:'qseed', by:'s3', byName:'מאיה', grade:'י׳', subject:'מתמטיקה', topic:'אנליזה: נגזרות', text:'נתקעתי בתרגיל: נגזרת של x² כפול sin x. מישהו יכול להסביר?', urgency:'today', at:Date.now() - 4*60000, status:'open'});
+  if(!S.groups.gseed) S.groups.gseed = {id:'gseed', title:'חזרה למבחן בנגזרות', subject:'מתמטיקה', topic:'אנליזה: נגזרות', at:Date.now() + 3*3600e3, max:4, hostId:'s1', hostName:'נועה', members:['s1','s3'], names:{s1:'נועה', s3:'מאיה'}, createdAt:Date.now(), live:{}};
+  const dm = (a, b) => { for(const k in b){ if(b[k] && typeof b[k] === 'object' && !Array.isArray(b[k])) a[k] = dm(a[k] && typeof a[k] === 'object' ? a[k] : {}, b[k]); else a[k] = b[k]; } return a; };
   const subs = new Set();
   const save = () => { localStorage.setItem(K, JSON.stringify(S)); subs.forEach(f => f()); };
   const mut = fn => { S = load() || S; S.calls ||= {}; fn(S); save(); };   // קורא את המצב העדכני לפני כל שינוי
@@ -145,11 +179,36 @@ function localBackend(){
     async listRatings(){ return Object.entries(S.ratings||{}).map(([id,r]) => ({id, ...r})); },
     async isAdmin(){ return true; },
     async listAllChats(){ return Object.entries(S.chats).map(([id,c]) => ({id, ...c})); },
-    async callReset(cid){ mut(s => s.calls[cid] = {doc:null, caller:[], callee:[]}); },
+    async callReset(cid){ mut(s => s.calls[cid] = {doc:null, caller:[], callee:[], board:[], game:null}); },
+    async gameSet(cid,d,replace){ mut(s => { const c = s.calls[cid] ||= {doc:null, caller:[], callee:[]}; c.game = replace ? JSON.parse(JSON.stringify(d)) : dm(c.game || {}, JSON.parse(JSON.stringify(d))); }); },
+    onGame: (cid,cb) => watch(() => cb(S.calls[cid]?.game || null)),
+    async addQuick(d){ const id = 'q' + Date.now(); mut(s => s.quick.push({...d, id}));
+      setTimeout(async () => { const h = Object.entries(S.users).find(([uid,u]) => u.seed && (u.help||[]).includes(d.subject) && uid !== d.by); if(!h || S.quick.find(r => r.id === id)?.status !== 'open') return;
+        await api.claimQuick(id, {status:'taken', takenBy:h[0], takenByName:h[1].name}); const cid = await api.openChat(d.by, h[0], {[d.by]:d.byName, [h[0]]:h[1].name}, d.subject);
+        api.send(cid, {from:h[0], type:'text', text:`היי ${d.byName}! ראיתי את הבקשה ב${d.subject}. אני כאן, מה לא ברור? 😊`}); }, 4500);
+      return id; },
+    onQuick: cb => watch(() => cb(S.quick.slice())),
+    async claimQuick(id,patch){ mut(s => s.quick.forEach(r => { if(r.id === id){ if(patch.status === 'taken' && r.status !== 'open') fail('taken'); Object.assign(r, patch); } })); },
+    async createGroup(d){ const id = 'g' + Date.now().toString(36); mut(s => s.groups[id] = {...d, id, live:{}}); return id; },
+    onGroups: cb => watch(() => cb(Object.values(S.groups))),
+    onGroup: (gid,cb) => watch(() => cb(S.groups[gid] || null)),
+    async joinGroup(gid,uid,name){ mut(s => { const g = s.groups[gid]; if(!g.members.includes(uid)) g.members.push(uid); (g.names ||= {})[uid] = name; });
+      if(S.groups[gid]?.members.includes('s1') && S.groups[gid].members.length < 4) setTimeout(() => api.gSend(gid, {from:'s1', name:'נועה', type:'text', text:`היי ${name}, ברוך הבא! 👋 נתחיל מנגזרות של פולינומים?`}), 1500); },
+    async leaveGroup(gid,uid){ mut(s => { const g = s.groups[gid]; if(!g) return; g.members = g.members.filter(x => x !== uid); delete g.names?.[uid]; delete g.live?.[uid]; }); },
+    async deleteGroup(gid){ mut(s => { delete s.groups[gid]; }); },
+    async gSend(gid,m){ const at = Date.now(); mut(s => (s.gmsgs[gid] ||= []).push({...m, id:'m' + at + Math.random().toString(36).slice(2,5), at})); },
+    onGMsgs: (gid,cb) => watch(() => cb((S.gmsgs[gid] || []).slice())),
+    async gLive(gid,uid,v){ mut(s => { const g = s.groups[gid]; if(!g) return; g.live ||= {}; if(v === null) delete g.live[uid]; else g.live[uid] = v; }); },
+    async sigSet(gid,pid,d,replace){ mut(s => { const k = gid + '/' + pid; s.sig[k] = replace ? JSON.parse(JSON.stringify(d)) : {...(s.sig[k] || {}), ...JSON.parse(JSON.stringify(d))}; }); },
+    async sigCand(gid,pid,field,c){ mut(s => { const x = s.sig[gid + '/' + pid] ||= {}; (x[field] ||= []); if(!x[field].some(y => JSON.stringify(y) === JSON.stringify(c))) x[field].push(c); }); },
+    onSig: (gid,pid,cb) => watch(() => cb(S.sig[gid + '/' + pid] || null)),
+    async gBoardAdd(gid,d){ mut(s => (s.gboard[gid] ||= []).push(d)); },
+    onGBoard: (gid,cb) => watch(() => cb((S.gboard[gid] || []).slice())),
+    phoneAuth: false,
     async callSet(cid,d,overwrite){ mut(s => { const c = s.calls[cid] ||= {doc:null, caller:[], callee:[]}; c.doc = overwrite ? {...d} : {...(c.doc||{}), ...d}; }); },
     async getCall(cid){ return S.calls[cid]?.doc || null; },
     onCall: (cid,cb) => watch(() => cb(S.calls[cid]?.doc || null)),
-    async callAddCand(cid,role,c){ mut(s => (s.calls[cid] ||= {doc:null, caller:[], callee:[]})[role].push(c)); },
+    async callAddCand(cid,role,c){ mut(s => { const x = s.calls[cid] ||= {doc:null, caller:[], callee:[]}; (x[role] ||= []).push(c); }); },
     onCallCands: (cid,role,cb) => watch(() => cb(S.calls[cid]?.[role] || [])),
   };
   return api;
@@ -181,7 +240,7 @@ const ERR = {
   'auth/weak-password':'הסיסמה צריכה לפחות 6 תווים','auth/email-already-in-use':'המספר הזה כבר רשום. נסה להתחבר',
   'auth/invalid-credential':'מספר או סיסמה לא נכונים','auth/wrong-password':'מספר או סיסמה לא נכונים','auth/user-not-found':'מספר או סיסמה לא נכונים',
   'auth/invalid-email':'מספר הטלפון לא תקין','auth/too-many-requests':'יותר מדי ניסיונות. נסה שוב בעוד כמה דקות',
-  'auth/network-request-failed':'אין חיבור לאינטרנט','auth/requires-recent-login':'מטעמי אבטחה, צא והתחבר שוב ואז נסה שוב',
+  'auth/network-request-failed':'אין חיבור לאינטרנט','auth/invalid-verification-code':'הקוד לא נכון','auth/code-expired':'הקוד פג תוקף. בקש קוד חדש','auth/invalid-phone-number':'מספר הטלפון לא תקין','auth/operation-not-allowed':'אימות ב-SMS עוד לא הופעל','auth/credential-already-in-use':'המספר הזה כבר רשום. נסה להתחבר','taken':'מישהו אחר כבר לקח את זה','auth/requires-recent-login':'מטעמי אבטחה, צא והתחבר שוב ואז נסה שוב',
 };
 const errMsg = e => ERR[e?.code] || 'משהו השתבש. נסה שוב';
 
@@ -242,8 +301,48 @@ function renderAuth(mode = 'login'){
     if(pw.length < 6) return er.textContent = 'הסיסמה צריכה לפחות 6 תווים';
     if(reg && pw !== $('#pw2').value) return er.textContent = 'הסיסמאות לא זהות';
     if(reg && !$('#agree').checked) return er.textContent = 'צריך לאשר את כללי ההתנהגות';
+    if(reg) return codeStep(key, $('#ph').value, pw);
     const btn = $('#go'); btn.disabled = true;
-    try { await (reg ? B.register : B.login)(key, pw); } catch(err){ er.textContent = errMsg(err); btn.disabled = false; }
+    try { await B.login(key, pw); } catch(err){ er.textContent = errMsg(err); btn.disabled = false; }
+  };
+}
+
+const phoneE164 = p => { let d = String(p).replace(/\D/g, ''); if(d.startsWith('972')) d = '0' + d.slice(3); return '+972' + d.slice(1); };
+function fakeSms(code, onTap){
+  const d = document.createElement('div'); d.className = 'sms'; d.setAttribute('role', 'alert');
+  d.innerHTML = `<b>📱 הודעה חדשה · חברותא</b><div>קוד האימות שלך הוא <b style="letter-spacing:2px">${code}</b></div><small>מצב הדגמה: ככה נראית הודעת ה-SMS. לחץ כדי למלא</small>`;
+  d.onclick = () => { onTap(); d.remove(); }; document.body.appendChild(d); sound('ok'); vibrate([60, 40, 60]); setTimeout(() => d.remove(), 14000);
+}
+// אימות מספר הטלפון בקוד בן 6 ספרות לפני יצירת החשבון
+async function codeStep(key, phoneRaw, pw){
+  const demo = !B.phoneAuth, f = $('#f'); let code = '', exp = 0, tries = 0, cd = 30, tm = null;
+  const send = async () => { if(demo){ code = String(Math.floor(100000 + Math.random() * 900000)); exp = Date.now() + 5 * 60000; tries = 0; setTimeout(() => fakeSms(code, () => { const i = $('#cd'); if(i){ i.value = code; i.focus(); } }), 1300); } else await B.sendRealCode(phoneE164(phoneRaw)); };
+  const btn0 = $('#go'); btn0.disabled = true;
+  try { await send(); } catch(e){ btn0.disabled = false; return $('#er').textContent = errMsg(e); }
+  const d = String(phoneRaw).replace(/\D/g, '').replace(/^972/, '0'), masked = `${d.slice(0, 3)}-•••-••${d.slice(-2)}`;
+  f.innerHTML = `<div class="rainbar"></div><h2 style="font-size:24px">אימות הטלפון 📱</h2>
+    <p class="muted" style="margin:6px 0">שלחנו קוד בן 6 ספרות למספר <b dir="ltr">${masked}</b></p>
+    <label for="cd">קוד אימות</label><input id="cd" class="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" dir="ltr">
+    <div class="err" id="er"></div><button class="btn" id="go">אימות ויצירת חשבון</button>
+    <div class="row between" style="margin-top:8px"><button type="button" class="link" id="rs" disabled>שליחה מחדש בעוד 30</button><button type="button" class="link" id="bk">שינוי מספר</button></div>
+    ${demo ? '<p class="small muted" style="margin:8px 0 0">מצב הדגמה: בלי SMS אמיתי, הקוד מוצג בהודעה למעלה.</p>' : ''}`;
+  $('#cd').focus();
+  const tick = () => { const r = $('#rs'); if(!r) return clearInterval(tm); cd--; if(cd <= 0){ clearInterval(tm); r.disabled = false; r.textContent = 'שליחת קוד חדש'; } else r.textContent = `שליחה מחדש בעוד ${cd}`; };
+  tm = setInterval(tick, 1000);
+  $('#bk').onclick = () => { clearInterval(tm); renderAuth('register'); };
+  $('#rs').onclick = async () => { $('#rs').disabled = true; try { await send(); toast('שלחנו קוד חדש'); cd = 30; tm = setInterval(tick, 1000); } catch(e){ $('#er').textContent = errMsg(e); } };
+  $('#cd').oninput = e => { e.target.value = e.target.value.replace(/\D/g, ''); };
+  f.onsubmit = async e => {
+    e.preventDefault(); const er = $('#er'), v = $('#cd').value.trim(); er.textContent = '';
+    if(v.length !== 6) return er.textContent = 'הקוד בן 6 ספרות';
+    $('#go').disabled = true;
+    try {
+      if(demo){
+        if(Date.now() > exp) { er.textContent = ERR['auth/code-expired']; $('#go').disabled = false; return; }
+        if(v !== code){ tries++; er.textContent = tries >= 5 ? 'יותר מדי ניסיונות. בקש קוד חדש' : ERR['auth/invalid-verification-code']; $('#go').disabled = tries >= 5; if(tries < 5) $('#go').disabled = false; return; }
+        clearInterval(tm); await B.register(key, pw);
+      } else { clearInterval(tm); await B.confirmRealCode(v, key, pw); }
+    } catch(err){ er.textContent = errMsg(err); $('#go').disabled = false; }
   };
 }
 
@@ -276,12 +375,20 @@ function renderOnboard(){
       <p class="legend">לחיצה אחת: <span class="tag need">צריך עזרה</span> · שנייה: <span class="tag help">יכול לעזור</span> · שלישית: ביטול</p>
       <div class="chips" id="ch"></div></div>
     <div class="card"><h3>🎯 תחביבים <span class="muted small">(לא חובה, עד 6)</span></h3><p class="legend">ככה נתאים לך חברותא שיש לכם על מה לדבר גם מחוץ ללימודים</p>
-      <div class="chips" id="hb">${HOBBIES.map(([i,n]) => `<span class="chip ${hob.has(n) ? 'hon' : ''}" data-h="${n}">${i} ${n}</span>`).join('')}</div></div>
+      <div class="chips" id="hb">${HOBBIES.map(([i,n]) => `<span class="chip ${hob.has(n) ? 'hon' : ''}" data-h="${n}">${i} ${n}</span>`).join('')}</div>
+      <label class="row" style="gap:8px;font-weight:600;margin-top:12px;align-items:flex-start"><input type="checkbox" id="fr" style="width:auto;margin-top:3px" ${me?.friends ? 'checked' : ''}><span>🎈 אני רוצה גם להכיר חברים חדשים בחברותא <span class="muted small">(רק מי שמסמן כאן נראה במסלול "חברים")</span></span></label></div>
     <div class="card"><h3>🕐 מתי נוח לך?</h3><p class="legend">סמן את הזמנים שאתה בדרך כלל פנוי. כך יציעו לך מפגשים רק בשעות שמתאימות.</p>${availGrid(av)}</div>
+    <div class="card" id="tpc"></div>
     <div class="err" id="er"></div><button class="btn" id="sv">${editing ? 'שמירה' : 'בוא נתחיל 🚀'}</button>
   </div>`;
-  const draw = () => $('#ch').innerHTML = SUBJECTS.map(s => `<span class="chip ${subj[s]||''}" data-s="${esc(s)}">${ICON[s]} ${esc(s)}</span>`).join('');
+  const tsel = new Set(me?.topics || []);
+  const drawTopics = () => { const chosen = SUBJECTS.filter(s => subj[s]);
+    $('#tpc').innerHTML = `<h3>🎯 נושאים ספציפיים <span class="muted small">(לא חובה)</span></h3><p class="legend">יש נושא מסוים? למשל נגזרות, ספר בראשית או בניינים בלשון. סמן אותו ונתאים לך חברותא מדויקת יותר.</p>`
+      + (chosen.length ? chosen.map(s => `<div class="tsub"><b class="small">${ICON[s]} ${esc(s)} <span class="tag ${subj[s]}">${subj[s] === 'need' ? 'צריך עזרה' : 'יכול לעזור'}</span></b><div class="chips">${topicsOf(s).map(t => `<span class="chip ${tsel.has(tkey(s, t)) ? 'hon' : ''}" data-tp="${esc(tkey(s, t))}">${esc(t)}</span>`).join('')}</div></div>`).join('') : '<div class="small muted">קודם בוחרים מקצועות למעלה ⬆️</div>'); };
+  const draw = () => { $('#ch').innerHTML = SUBJECTS.map(s => `<span class="chip ${subj[s]||''}" data-s="${esc(s)}">${ICON[s]} ${esc(s)}</span>`).join(''); drawTopics(); };
   draw();
+  $('#tpc').onclick = e => { const c = e.target.closest('[data-tp]'); if(!c) return; const k = c.dataset.tp;
+    if(tsel.has(k)) tsel.delete(k); else { if(tsel.size >= 15) return toast('אפשר לבחור עד 15 נושאים'); tsel.add(k); } c.classList.toggle('hon', tsel.has(k)); };
   $('#ch').onclick = e => { const s = e.target.closest('[data-s]')?.dataset.s; if(!s) return; subj[s] = subj[s] === 'need' ? 'help' : subj[s] === 'help' ? undefined : 'need'; draw(); };
   $('#hb').onclick = e => { const c = e.target.closest('[data-h]'); if(!c) return; const h = c.dataset.h;
     if(hob.has(h)) hob.delete(h); else { if(hob.size >= 6) return toast('אפשר לבחור עד 6 תחביבים'); hob.add(h); }
@@ -290,13 +397,13 @@ function renderOnboard(){
   $('#back') && ($('#back').onclick = () => { tab = 'profile'; renderMain(); });
   $('#sv').onclick = async () => {
     const name = cleanText($('#nm').value.trim()), grade = $('#gr').value, bio = cleanText($('#bi').value.trim());
-    const need = SUBJECTS.filter(s => subj[s] === 'need'), help = SUBJECTS.filter(s => subj[s] === 'help'), avail = [...av], hobbies = HOBBIES.map(h => h[1]).filter(h => hob.has(h));
+    const need = SUBJECTS.filter(s => subj[s] === 'need'), help = SUBJECTS.filter(s => subj[s] === 'help'), avail = [...av], hobbies = HOBBIES.map(h => h[1]).filter(h => hob.has(h)), topics = [...tsel].filter(k => subj[tsubject(k)]), friends = $('#fr').checked;
     const er = $('#er');
     if(!name) return er.textContent = 'כתוב את השם שלך';
     if(!grade) return er.textContent = 'בחר כיתה';
     if(!need.length && !help.length) return er.textContent = 'בחר לפחות מקצוע אחד';
     $('#sv').disabled = true;
-    const d = editing ? {name, grade, bio, need, help, avail, hobbies} : {name, grade, bio, need, help, avail, hobbies, stars:0, gameStars:0, streak:0, createdAt:Date.now()};
+    const d = editing ? {name, grade, bio, need, help, avail, hobbies, topics, friends} : {name, grade, bio, need, help, avail, hobbies, topics, friends, stars:0, gameStars:0, streak:0, createdAt:Date.now()};
     try { await B.saveUser(myId, d); me = {...(me||{}), id:myId, ...d}; tab = editing ? 'profile' : 'home'; editing ? renderMain() : (enterApp(), confetti(), toast('הפרופיל מוכן! 🎉')); }
     catch(e){ er.textContent = errMsg(e); $('#sv').disabled = false; }
   };
@@ -307,7 +414,7 @@ function renderOnboard(){
 const isUnread = c => c.lastFrom && c.lastFrom !== myId && (c.updatedAt||0) > (c.read?.[myId]||0);
 function tabsBar(){
   const T = [['home','🏠','בית'],['find','🔍','חברותא'],['practice','🎮','תרגול'],['chats','💬','צ׳אטים'],['profile','⭐','פרופיל']];
-  return `<nav class="tabs"><div>${T.map(([k,i,n]) => `<button data-t="${k}" class="${tab===k?'on':''}">${k==='chats' && chats.some(isUnread) ? '<span class="dot"></span>' : ''}<b>${i}</b>${n}</button>`).join('')}</div></nav>`;
+  return `<nav class="tabs"><div>${T.map(([k,i,n]) => `<button data-t="${k}" class="${tab===k?'on':''}">${(k==='chats' && chats.some(isUnread)) || (k==='find' && quick.count() > 0) ? '<span class="dot"></span>' : ''}<b>${i}</b>${n}</button>`).join('')}</div></nav>`;
 }
 function bindTabs(){ app.querySelectorAll('.tabs [data-t]').forEach(b => b.onclick = () => { tab = b.dataset.t; vibrate(8); renderMain(); }); }
 function renderMain(){
@@ -368,11 +475,14 @@ function renderHome(){
       <ul class="small"><li>🔍 בלשונית <b>חברותא</b> מוצאים מי יעזור לך, או למי אתה יכול לעזור</li><li>📅 בצ׳אט קובעים מפגש בשעה שנוחה לשניכם, ומדברים ב-🎥 וידאו</li><li>🎮 שיעור קצר כל יום שומר על הרצף 🔥 ומביא כוכבים</li></ul>
       <div class="small muted" style="margin-top:6px">בהצלחה! צוות חברותא 💙</div></div>`}
     ${questsHtml()}
+    ${welfare.moodCard()}
     ${installBanner()}
     <div class="head"><h3>📅 המפגשים הקרובים</h3>${ses.length ? '' : ''}</div>
     <div class="list" id="ses">${ses.length ? ses.map(sessionCard).join('') : `<div class="card empty">${mascot('', .6)}<br>עוד אין מפגשים.<br>מצא חברותא, ואז קבעו זמן בכפתור 📅 בצ׳אט.</div>`}</div>
     <div class="card gamecard" id="gofind"><div class="ic" style="background:var(--sky)">🔍</div><div class="grow"><b class="fred big">${(me.need||[]).length ? 'מצא מי יעזור לך' : 'מצא למי לעזור'}</b>
       <div class="small muted">${esc(((me.need||[]).length ? me.need : me.help||[]).slice(0,3).join(' · '))}</div></div><span class="big">←</span></div>
+    <div class="card gamecard" id="goquick"><div class="ic" style="background:var(--grn)">⚡</div><div class="grow"><b class="fred big">עזרה נקודתית</b><div class="small muted">תקוע בשיעורי בית? מישהו יקפוץ לעזור</div></div><span class="big">←</span></div>
+    <div class="card gamecard" id="gogroups"><div class="ic" style="background:var(--vio)">👥</div><div class="grow"><b class="fred big">לומדים בקבוצה</b><div class="small muted">הצטרפו לקבוצת לימוד או פתחו אחת</div></div><span class="big">←</span></div>
     <div class="card gamecard" id="gospeed"><div class="ic" style="background:var(--yel)">⚡</div><div class="grow"><b class="fred big">אתגר 60 שניות</b><div class="small muted">נכון או לא נכון, הכי מהר שאפשר</div></div><span class="big">←</span></div>
     <div id="onl"></div>
     ${!me.rated && (Object.keys(me.progress||{}).length || chats.length) ? `<div class="card gamecard" id="rate" style="background:linear-gradient(120deg,#3b2f0e,#1d2150)"><div class="ic" style="background:var(--yel)">💛</div><div class="grow"><b class="fred big">איך חברותא בשבילך?</b><div class="small muted">דרג אותנו בשתי שניות</div></div><span class="stars big">★★★★★</span></div>` : ''}
@@ -387,20 +497,60 @@ function renderHome(){
     if(d < LESSONS_PER_SUBJECT){ tab = 'practice'; renderMain(); lesson(nextSubj, true); } else { tab = 'practice'; scrollToPath = true; renderMain(); } };
   $('#gofind').onclick = () => { findMode = (me.need||[]).length ? 'need' : 'help'; tab = 'find'; renderMain(); };
   $('#gospeed').onclick = speed;
+  $('#goquick').onclick = () => { findMode = 'need'; tab = 'find'; renderMain(); quick.ask(); };
+  $('#gogroups').onclick = () => { findMode = 'groups'; tab = 'find'; renderMain(); };
+  $('#mood')?.addEventListener('click', e => { const b = e.target.closest('[data-v]'); if(!b) return; const worry = welfare.saveMood(+b.dataset.v); vibrate(8);
+    $('#mood').innerHTML = `<b class="fred big">תודה ששיתפת 💙</b>`; if(worry) setTimeout(() => welfare.supportSheet('distress'), 500); else setTimeout(() => $('#mood')?.remove(), 1500); });
   bindSessions($('#ses'));
 }
 
 /* =============== find =============== */
 
+const findSeg = () => `<div class="seg"><button data-m="need" class="${findMode==='need'?'on':''}">🙋 עזרה</button><button data-m="help" class="${findMode==='help'?'on':''}">🤝 אעזור</button><button data-m="groups" class="${findMode==='groups'?'on':''}">👥 קבוצות</button><button data-m="friends" class="${findMode==='friends'?'on':''}">🎈 חברים</button></div>`;
+async function renderFriends(){
+  app.innerHTML = `<div class="page"><div class="head"><h2 style="font-size:26px">מצא חברותא</h2>${pills()}</div>${findSeg()}<div class="list" id="fl"><div class="skel"></div><div class="skel"></div></div></div>`;
+  app.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { findMode = b.dataset.m; findSubject = ''; renderMain(); });
+  const box = $('#fl');
+  if(!me.friends){
+    box.innerHTML = `<div class="card empty">${mascot('', .7)}<br><b>לא רק ללמוד 🎈</b><br>אפשר גם להכיר חברים חדשים לפי תחביבים משותפים. רק מי שהפעיל את האפשרות רואה ונראה כאן.<br><button class="btn sm" id="fon" style="margin-top:12px">להפעיל</button></div>`;
+    $('#fon').onclick = async () => { me.friends = true; await B.saveUser(myId, {friends:true}).catch(() => {}); if(!(me.hobbies||[]).length) toast('כדאי להוסיף תחביבים בפרופיל כדי שנתאים לך חברים'); renderMain(); };
+    return;
+  }
+  let users; try { users = await B.listUsers(); } catch { box.innerHTML = '<div class="card empty">לא הצלחנו לטעון. בדוק את החיבור לאינטרנט.</div>'; return; }
+  if(!$('#fl') || tab !== 'find') return;
+  const gi = g => GRADES.indexOf(g);
+  const res = users.filter(u => u.id !== myId && u.name && u.friends && !u.banned && !isBlocked(u.id) && !(u.blocked||[]).includes(myId) && Math.abs(gi(u.grade) - gi(me.grade)) <= 1)
+    .map(u => { const hobs = (u.hobbies||[]).filter(h => (me.hobbies||[]).includes(h)); return {u, hobs, score: hobs.length*3 + (u.grade === me.grade ? 1 : 0) + (online(u) ? 1 : 0)}; }).sort((a,b) => b.score - a.score);
+  box.innerHTML = `<div class="small muted">חברים בכיתה שלך או בסביבתה, לפי תחביבים משותפים. אותם כללי התנהגות ופרטיות.</div>` + (res.length ? res.map(({u,hobs}) => `<div class="card item fcard" data-u="${esc(u.id)}">${avatarOn(u)}<div class="grow"><b>${esc(u.name)} <span class="muted small">· ${esc(u.grade||'')}</span></b>
+    ${u.bio ? `<div class="small muted ellipsis">${esc(u.bio)}</div>` : ''}<div>${hobbyTags(u.hobbies, me.hobbies||[])}</div></div>${hobs.length ? `<div class="match" style="--p:${Math.min(99, 55 + hobs.length*12)}"><b>${hobs.length}</b><small>משותפים</small></div>` : ''}</div>`).join('')
+    : `<div class="card empty">עוד אין מי שהפעיל חברים בסביבתך.<br>שתף את חברותא 💫<br><button class="btn sm" id="sh" style="margin-top:12px">שיתוף</button></div>`);
+  $('#sh') && ($('#sh').onclick = share);
+  box.onclick = e => { const c = e.target.closest('[data-u]'); if(!c) return; const r = res.find(x => x.u.id === c.dataset.u); if(!r) return; const u = r.u;
+    const def = `היי ${u.name}! ראיתי ש${r.hobs.length ? 'גם אנחנו אוהבים ' + r.hobs[0] : 'הצטרפנו לחברותא'}. רוצה להכיר? 😊`;
+    sheet(`<div class="row" style="margin-bottom:10px">${avatar(u.id,u.name,58)}<div><h3>${esc(u.name)}</h3><div class="muted small">כיתה ${esc(u.grade||'')}</div></div></div>
+      ${(u.hobbies||[]).length ? `<div style="margin:4px 0 6px">${hobbyTags(u.hobbies, me.hobbies||[])}</div>` : ''}
+      <label for="ft">הודעה ראשונה</label><textarea id="ft" rows="3">${esc(def)}</textarea><div style="height:14px"></div><button class="btn" id="fg">🎈 שליחה</button>
+      <div class="row between" style="margin-top:8px"><button class="link small" id="frl">🛡️ כללי ההתנהגות</button><button class="link small" id="frp" style="color:var(--pink)">🚩 דיווח</button></div>`, (el, close) => {
+        el.querySelector('#frl').onclick = () => { close(); rulesSheet(); }; el.querySelector('#frp').onclick = () => { close(); reportSheet({id:u.id, name:u.name}); };
+        el.querySelector('#fg').onclick = async ev => { const text = cleanText(el.querySelector('#ft').value.trim()); if(!text) return; ev.target.disabled = true;
+          try { const cid = await B.openChat(myId, u.id, {[myId]:me.name, [u.id]:u.name}, 'חברים'); await B.send(cid, {from:myId, type:'text', text}); close(); renderChat(cid); } catch(err){ ev.target.disabled = false; toast(errMsg(err)); } }; }); };
+}
 async function renderFind(){
+  if(findMode === 'friends') return renderFriends();
+  if(findMode === 'groups'){
+    app.innerHTML = `<div class="page"><div class="head"><h2 style="font-size:26px">מצא חברותא</h2>${pills()}</div>${findSeg()}<div class="list" id="gl"></div></div>`;
+    app.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { findMode = b.dataset.m; findSubject = ''; renderMain(); });
+    unsubView.push(groups.renderTab($('#gl'))); return;
+  }
   const mine = findMode === 'need' ? (me.need||[]) : (me.help||[]);
   if(findSubject && !mine.includes(findSubject)) findSubject = '';
   app.innerHTML = `<div class="page">
     <div class="head"><h2 style="font-size:26px">מצא חברותא</h2>${pills()}</div>
-    <div class="seg"><button data-m="need" class="${findMode==='need'?'on':''}">🙋 מי יעזור לי</button><button data-m="help" class="${findMode==='help'?'on':''}">🤝 למי אני יכול לעזור</button></div>
+    ${findSeg()}<div class="list" id="qk2">${quick.html()}</div>
     ${mine.length ? `<div class="chips" id="fs"><span class="chip ${!findSubject?'on':''}" data-s="">הכול</span>${mine.map(s => `<span class="chip ${findSubject===s?'on':''}" data-s="${esc(s)}">${ICON[s]} ${esc(s)}</span>`).join('')}</div>` : ''}
     <div class="list" id="res"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div></div>`;
   app.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { findMode = b.dataset.m; findSubject = ''; renderMain(); });
+  quick.bind($('#qk2'));
   $('#fs') && ($('#fs').onclick = e => { const c = e.target.closest('[data-s]'); if(!c) return; findSubject = c.dataset.s; renderMain(); });
   if(!mine.length){
     $('#res').innerHTML = `<div class="card empty">${findMode==='need' ? 'לא סימנת מקצועות שאתה צריך בהם עזרה.' : 'לא סימנת מקצועות שאתה יכול לעזור בהם.'}<br><button class="link" id="ed">עדכון מקצועות</button></div>`;
@@ -414,7 +564,8 @@ async function renderFind(){
     const back = findMode === 'need' ? (u.need||[]).filter(s => (me.help||[]).includes(s)) : [];
     const common = (u.avail||[]).filter(a => myAv.has(a)).length;
     const hobs = (u.hobbies||[]).filter(h => (me.hobbies||[]).includes(h));
-    return {u, match, back, common, hobs, score: match.length*10 + back.length*3 + Math.min(common,6) + hobs.length*2.5 + Math.min(totalStars(u),100)/25};
+    const tm = (u.topics||[]).filter(t => (me.topics||[]).includes(t) && want.includes(tsubject(t)));
+    return {u, match, back, common, hobs, tm, score: tm.length*6 + match.length*10 + back.length*3 + Math.min(common,6) + hobs.length*2.5 + Math.min(totalStars(u),100)/25};
   }).filter(x => x.match.length).sort((a,b) => b.score - a.score);
   if(!res.length){
     $('#res').innerHTML = `<div class="card empty">עוד אין כאן תלמידים ${findMode==='need'?'שיכולים לעזור':'שצריכים עזרה'} ב${esc(want.join(', '))}.<br>שתף את חברותא עם חברים מהכיתה 💫<br><button class="btn sm" id="sh" style="margin-top:12px">שיתוף</button></div>`;
@@ -422,11 +573,11 @@ async function renderFind(){
   }
   const onl = users.filter(u => u.id !== myId && u.name && online(u)).length;
   $('#res').insertAdjacentHTML('beforebegin', onl ? `<div class="small" style="color:var(--grn);font-weight:700">● ${onl} באפליקציה עכשיו</div>` : '');
-  $('#res').innerHTML = res.sort((a,b) => online(b.u) - online(a.u) || b.score - a.score).map(({u,match,back,common,hobs},i) => { const pct = Math.min(99, 60 + match.length*10 + Math.min(common,6)*3 + back.length*6 + Math.min(hobs.length,3)*5 + (online(u) ? 4 : 0));
+  $('#res').innerHTML = res.sort((a,b) => online(b.u) - online(a.u) || b.score - a.score).map(({u,match,back,common,hobs,tm},i) => { const pct = Math.min(99, 60 + Math.min(tm.length,2)*4 + match.length*10 + Math.min(common,6)*3 + back.length*6 + Math.min(hobs.length,3)*5 + (online(u) ? 4 : 0));
     return `<div class="card item fcard ${i === 0 ? 'best' : ''}" data-u="${esc(u.id)}">${i === 0 ? '<span class="bestbadge">✨ ההתאמה הכי טובה</span>' : ''}${avatarOn(u)}
     <div class="grow"><div class="row between"><b>${esc(u.name)} <span class="muted small">· ${esc(u.grade||'')}</span></b><span class="score">${online(u) ? '<span style="color:var(--grn)">🟢 עכשיו · </span>' : ''}⭐ ${totalStars(u)}</span></div>
       ${u.bio ? `<div class="small muted ellipsis">${esc(u.bio)}</div>` : ''}
-      <div>${match.map(s => `<span class="tag ${findMode==='need'?'help':'need'}">${ICON[s]} ${esc(s)}</span>`).join('')}${back.length ? `<span class="tag need">ואתה עוזר ב${esc(back[0])}</span>` : ''}${common ? `<span class="tag sky">🕐 ${common} זמנים משותפים</span>` : ''}${hobs.length ? `<span class="tag hob same">${hobs.slice(0,2).map(h => HICON[h]).join('')} ${hobs.length > 1 ? hobs.length + ' תחביבים משותפים' : 'גם אוהב/ת ' + esc(hobs[0])}</span>` : ''}</div>
+      <div>${match.map(s => `<span class="tag ${findMode==='need'?'help':'need'}">${ICON[s]} ${esc(s)}</span>`).join('')}${tm.slice(0,2).map(t => `<span class="tag sky">🎯 ${esc(ttopic(t))}</span>`).join('')}${back.length ? `<span class="tag need">ואתה עוזר ב${esc(back[0])}</span>` : ''}${common ? `<span class="tag sky">🕐 ${common} זמנים משותפים</span>` : ''}${hobs.length ? `<span class="tag hob same">${hobs.slice(0,2).map(h => HICON[h]).join('')} ${hobs.length > 1 ? hobs.length + ' תחביבים משותפים' : 'גם אוהב/ת ' + esc(hobs[0])}</span>` : ''}</div>
     </div><div class="match" style="--p:${pct}"><b>${pct}%</b><small>התאמה</small></div></div>`; }).join('');
   $('#res').onclick = e => { const c = e.target.closest('[data-u]'); if(!c) return; const r = res.find(x => x.u.id === c.dataset.u); requestSheet(r.u, r.match); };
 }
@@ -437,6 +588,7 @@ function requestSheet(u, match){
   sheet(`<div class="row" style="margin-bottom:10px">${avatar(u.id,u.name,58)}<div><h3>${esc(u.name)}</h3><div class="muted small">כיתה ${esc(u.grade||'')} · ⭐ ${totalStars(u)} · רמה ${level(u)} · 🔥 ${streakOf(u)}</div></div></div>
     ${u.bio ? `<p class="muted" style="margin:6px 0">${esc(u.bio)}</p>` : ''}
     ${(u.hobbies||[]).length ? `<div style="margin:4px 0 6px">${hobbyTags(u.hobbies, me.hobbies||[])}</div>` : ''}
+    ${(u.topics||[]).length ? `<div style="margin:4px 0 6px">${u.topics.slice(0,6).map(t => `<span class="tag sky">🎯 ${esc(ttopic(t))}</span>`).join('')}</div>` : ''}
     <div id="uthx"></div>
     <label for="rs">מקצוע</label><select id="rs">${match.map(s => `<option>${esc(s)}</option>`).join('')}</select>
     <label for="rt">הודעה ראשונה</label><textarea id="rt" rows="3">${esc(def(match[0]))}</textarea>
@@ -572,7 +724,7 @@ function renderChat(cid){
       : `<div class="msg ${m.from===myId?'me':'them'}">${esc(m.text)}<time>${timeStr(m.at)}</time></div>`).join('') : '<div class="empty">תגידו שלום 👋</div>';
     if(atBottom || box.dataset.first !== '1'){ box.scrollTop = box.scrollHeight; box.dataset.first = '1'; } };
   unsubView.push(B.onChat(cid, c => { chat = c; drawHead(); drawMsgs(); markRead(); }));
-  unsubView.push(B.onMessages(cid, m => { msgs = m; drawMsgs(); markRead(); }));
+  unsubView.push(B.onMessages(cid, m => { msgs = m; drawMsgs(); markRead(); const l = m[m.length - 1]; if(l && l.from !== myId && l.type === 'text') scanIn(l.text, otherObj(), l.at, cid); }));
   $('#ms').onclick = async e => {
     const ok = e.target.closest('[data-ok]'), no = e.target.closest('[data-no]'), j = e.target.closest('[data-join]'), ic = e.target.closest('[data-ics]');
     if(ok || no){ const sid = (ok||no).dataset[ok?'ok':'no'];
@@ -588,9 +740,13 @@ function renderChat(cid){
   const tx = $('#tx');
   const send = async () => { const raw = tx.value.trim(); if(!raw) return; tx.value = ''; tx.style.height = '';
     if(chat && isBlocked(otherObj().id)) return toast('חסמת את המשתמש הזה. אפשר לבטל ב-⋯');
+    const hl = welfare.hurtLevel(raw);
+    if(hl){ tx.value = ''; return welfare.hurtNudge(hl, raw, () => { tx.value = raw; sendNow(raw); }, () => { tx.value = raw; tx.focus(); }); }
+    sendNow(raw); };
+  const sendNow = async raw => { tx.value = ''; tx.style.height = '';
     const t = cleanText(raw).replace(/(\+972[-\s]?|0)5\d[-\s]?\d{3}[-\s]?\d{4}/g, '📵'); if(t !== raw) toast('🛡️ חלק מההודעה הוסתר. בחברותא מדברים בכבוד ושומרים על פרטיות');
     if(hasPersonal(raw)) setTimeout(() => toast('🔒 שומרים על פרטיות: עדיף לא לשתף טלפון, כתובת או רשתות'), t !== raw ? 2700 : 0);
-    try { await B.send(cid, {from:myId, type:'text', text:t}); markDay('msgDay'); } catch(e){ tx.value = t; toast(errMsg(e)); } };
+    try { await B.send(cid, {from:myId, type:'text', text:t}); markDay('msgDay'); scanOut(raw); } catch(e){ tx.value = t; toast(errMsg(e)); } };
   $('#sd').onclick = send;
   $('#qk').onclick = e => { const b = e.target.closest('button'); if(!b) return; tx.value = b.textContent; send(); vibrate(8); };
   tx.onkeydown = e => { if(e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer:coarse)').matches){ e.preventDefault(); send(); } };
@@ -683,10 +839,12 @@ function renderProfile(){
       <div class="small muted" style="margin-top:6px">כוכבים מקבלים מתרגול, ומחברותא שמודים לך על עזרה.</div></div>
     <div class="card"><b>צריך עזרה ב:</b><div>${(me.need||[]).map(s => `<span class="tag need">${ICON[s]} ${esc(s)}</span>`).join('') || '<span class="muted small">—</span>'}</div>
       <b style="display:block;margin-top:8px">יכול לעזור ב:</b><div>${(me.help||[]).map(s => `<span class="tag help">${ICON[s]} ${esc(s)}</span>`).join('') || '<span class="muted small">—</span>'}</div>
+      ${(me.topics||[]).length ? `<b style="display:block;margin-top:8px">🎯 נושאים:</b><div>${me.topics.map(t => `<span class="tag sky">${esc(ttopic(t))}</span>`).join('')}</div>` : ''}
       <b style="display:block;margin-top:8px">🎯 תחביבים:</b><div>${hobbyTags(me.hobbies) || '<button class="link small" id="addhob">+ הוספת תחביבים, כדי שנתאים לך חברותא טובה יותר</button>'}</div>
       <b style="display:block;margin-top:8px">🕐 זמנים פנויים:</b><div class="small muted">${avTxt.length ? esc(avTxt.join(' · ')) : 'לא סימנת'}</div></div>
     <div id="mythx"></div>
     <div class="card"><div class="row between"><b class="fred big">🏅 התגים שלי</b><span class="small muted">${(me.badges||[]).length}/${BADGES.length}</span></div>${badgesHtml()}</div>
+    <div class="card gamecard" id="sos"><div class="ic" style="background:var(--pink)">🫶</div><div class="grow"><b class="fred big">צריך עזרה?</b><div class="small muted">חרם, הצקות או קשה לך? יש עם מי לדבר</div></div><span class="big">←</span></div>
     <div class="card gamecard" id="idea"><div class="ic" style="background:var(--vio)">💡</div><div class="grow"><b class="fred big">יש לך רעיון לשיפור?</b><div class="small muted">ספר לנו מה להוסיף או לשנות</div></div><span class="big">←</span></div>
     <div class="card gamecard" id="rate"><div class="ic" style="background:var(--yel)">⭐</div><div class="grow"><b class="fred big">${me.rated ? `דירגת ${'★'.repeat(me.rated)}` : 'דרג את חברותא'}</b><div class="small muted">ולראות מה אחרים אומרים</div></div><span class="big">←</span></div>
     ${isAdm ? '<button class="btn yel" id="adm">📊 לוח ניהול</button>' : ''}
@@ -702,7 +860,7 @@ function renderProfile(){
   B.listThanks(myId).then(ts => { const box = $('#mythx'); if(box && ts.length) box.innerHTML = `<div class="card"><b class="fred big">💛 מה אומרים עליי</b>${ts.slice(0,5).map(t => `<div class="thx">"${esc(t.text)}" <span class="muted small">· ${esc(t.fromName||'')}${t.subject ? ' · ' + esc(t.subject) : ''}</span></div>`).join('')}</div>`; }).catch(() => {}); $('#adm') && ($('#adm').onclick = renderAdmin);
   app.querySelectorAll('.bdg').forEach(b => b.onclick = () => toast(b.title));
   $('#prules').onclick = rulesSheet;
-  $('#idea').onclick = ideaSheet;
+  $('#idea').onclick = ideaSheet; $('#sos').onclick = () => welfare.helpMenu();
   $('#addhob') && ($('#addhob').onclick = renderOnboard);
   $('#cert') && ($('#cert').onclick = certificate);
   $('#ed').onclick = renderOnboard; $('#in') && ($('#in').onclick = doInstall); $('#sh').onclick = share; $('#lo').onclick = () => B.logout();
@@ -834,7 +992,7 @@ async function renderAdmin(){
   const openReps = reps.filter(r => r.status !== 'done'), byId = Object.fromEntries(users.map(u => [u.id, u]));
   $('#ad').innerHTML = `
     <div class="card" style="${openReps.length ? 'border-color:var(--pink)' : ''}"><div class="row between"><h3>🚩 דיווחים ${openReps.length ? `<span class="tag need">${openReps.length} פתוחים</span>` : ''}</h3></div>
-      ${reps.length ? reps.slice(0,20).map(r => `<div class="thx" style="${r.status === 'done' ? 'opacity:.5' : ''}"><div class="row between"><b>${esc(r.reason)}</b><span class="small muted">${timeStr(r.at)}</span></div>
+      ${reps.length ? reps.slice().sort((a,b) => (b.urgent?1:0) - (a.urgent?1:0) || b.at - a.at).slice(0,20).map(r => `<div class="thx" style="${r.status === 'done' ? 'opacity:.5' : ''}"><div class="row between"><b>${r.urgent ? '🆘 ' : ''}${esc(r.reason)}</b><span class="small muted">${timeStr(r.at)}</span></div>
         <div class="small">על: <b>${esc(r.targetName||'')}</b> · מאת: ${esc(r.byName||'')}${byId[r.target]?.banned ? ' · <span style="color:var(--pink)">מושעה</span>' : ''}</div>${r.text ? `<div class="small" style="margin-top:4px">"${esc(r.text)}"</div>` : ''}
         ${r.status === 'done' ? '<div class="small muted">✓ טופל</div>' : `<div class="row" style="margin-top:6px"><button class="btn sm grn" data-done="${esc(r.id)}">✓ טופל</button><button class="btn sm pink" data-ban="${esc(r.target)}" data-v="${byId[r.target]?.banned ? '0' : '1'}">${byId[r.target]?.banned ? 'ביטול השעיה' : '⛔ השעיית משתמש'}</button></div>`}</div>`).join('') : '<div class="muted small">אין דיווחים 🎉</div>'}</div>
     ${ideasAdminHtml(ideas)}
@@ -955,8 +1113,8 @@ async function toggleBlock(uid, name){
   me.blocked = [...bl]; try { await B.saveUser(myId, {blocked: me.blocked}); } catch {}
   toast(was ? `ביטלת את החסימה של ${name}` : `🚫 חסמת את ${name}. לא תראו יותר זה את זה`);
 }
-function reportSheet(target, cid){
-  const R = ['הטרדה','שפה פוגענית','בקשה לפרטים אישיים','תוכן לא לימודי','התחזות','אחר'];
+function reportSheet(target, cid, pre, preText){
+  const R = ['חרם או הצקות','מצוקה נפשית','הטרדה','שפה פוגענית','בקשה לפרטים אישיים','תוכן לא לימודי','התחזות','אחר'];
   let reason = '';
   sheet(`<div style="text-align:center"><div style="font-size:44px">🚩</div><h3>דיווח על ${esc(target.name)}</h3><p class="small muted" style="margin:4px 0">הדיווח נשלח לצוות חברותא בלבד. ${esc(target.name)} לא יידע מי דיווח.</p></div>
     <label>מה קרה?</label><div class="chips" id="rr">${R.map(r => `<span class="chip" data-r="${r}">${r}</span>`).join('')}</div>
@@ -964,9 +1122,10 @@ function reportSheet(target, cid){
     <label class="row" style="gap:8px;font-weight:600"><input type="checkbox" id="rb" checked style="width:auto"> לחסום גם את ${esc(target.name)}</label>
     <div style="height:10px"></div><button class="btn pink" id="rs" disabled>שליחת דיווח</button>
     <p class="small muted" style="margin:10px 0 0">אם מישהו מאיים עליך או מבקש משהו מפחיד, ספרו מיד להורה או למורה.</p>`, (el, close) => {
+      if(pre){ setTimeout(() => el.querySelector(`[data-r="${pre}"]`)?.click(), 0); } if(preText) el.querySelector('#rd').value = preText;
       el.querySelector('#rr').onclick = e => { const c = e.target.closest('[data-r]'); if(!c) return; reason = c.dataset.r; el.querySelectorAll('#rr .chip').forEach(x => x.classList.toggle('need', x === c)); el.querySelector('#rs').disabled = false; };
       el.querySelector('#rs').onclick = async e => { e.target.disabled = true;
-        try { await B.addReport({by:myId, byName:me.name, target:target.id, targetName:target.name, reason, text:el.querySelector('#rd').value.trim().slice(0,500), cid:cid||'', at:Date.now(), status:'open'});
+        try { await B.addReport({by:myId, byName:me.name, target:target.id, targetName:target.name, reason, text:el.querySelector('#rd').value.trim().slice(0,500), cid:cid||'', at:Date.now(), status:'open', urgent:['חרם או הצקות','מצוקה נפשית'].includes(reason)});
           if(el.querySelector('#rb').checked && !isBlocked(target.id)) await toggleBlock(target.id, target.name);
           close(); toast('תודה על הדיווח. הצוות יבדוק בהקדם 🛡️'); if(el.querySelector('#rb').checked && $('.chatwrap')){ tab = 'chats'; renderMain(); } }
         catch(err){ e.target.disabled = false; toast(errMsg(err)); } };
@@ -977,13 +1136,50 @@ function chatMenu(cid, o){
   sheet(`<h3 style="margin-bottom:12px">${esc(o.name)}</h3><div class="list">
     <button class="btn alt" data-a="report">🚩 דיווח</button>
     <button class="btn alt" data-a="block">${bl ? '✅ ביטול חסימה' : '🚫 חסימה'}</button>
-    <button class="btn alt" data-a="rules">🛡️ כללי ההתנהגות</button></div>`, (el, close) => {
+    <button class="btn alt" data-a="rules">🛡️ כללי ההתנהגות</button>
+    <button class="btn alt" data-a="help">🫶 צריך עזרה?</button></div>`, (el, close) => {
       el.onclick = async e => { const a = e.target.closest('[data-a]')?.dataset.a; if(!a) return; close();
+        if(a === 'help') return welfare.helpMenu();
         if(a === 'report') reportSheet(o, cid);
         if(a === 'rules') rulesSheet();
         if(a === 'block'){ await toggleBlock(o.id, o.name); if(!bl){ tab = 'chats'; renderMain(); } else renderChat(cid); } };
     });
 }
+
+/* =============== features wiring =============== */
+
+const lastW = {};
+function scanOut(text){ const r = welfare.scan(text); if(!r.level) return; if(Date.now() - (lastW[r.kind] || 0) < 10*60000) return; lastW[r.kind] = Date.now(); setTimeout(() => welfare.supportSheet(r.kind), 700); }
+const seenW = new Set();
+function scanIn(text, other, at, cid){
+  if(at && Date.now() - at > 3*60000) return; const r = welfare.scan(text); if(!r.level) return;
+  const k = other.id + text + at; if(seenW.has(k)) return; seenW.add(k);
+  const bar = $('.composer'); if(!bar || $('#wb')) return;
+  const b = document.createElement('div'); b.id = 'wb'; b.className = 'wbanner';
+  b.innerHTML = `<span>💙 ${esc(other.name || 'החברותא')} אולי עובר/ת משהו קשה</span><button class="btn sm" id="wbo">איך עוזרים</button><button class="link" id="wbx" aria-label="סגירה">✕</button>`;
+  bar.before(b); sound('ok');
+  $('#wbx').onclick = () => b.remove();
+  $('#wbo').onclick = () => welfare.friendSheet(other, r.kind, t => { const tx = $('#tx'); if(tx){ tx.value = t; tx.focus(); } });
+}
+function pickReport(){
+  const others = chats.map(c => { const id = c.members.find(x => x !== myId); return {id, name:c.names?.[id] || 'חברותא', cid:c.id}; });
+  if(!others.length) return toast('אפשר לדווח מתוך הצ׳אט עם המשתמש: ⋯ ← דיווח');
+  sheet(`<h3>על מי הדיווח?</h3><div class="list" style="margin-top:10px">${others.map(o => `<button class="btn alt" data-o="${esc(o.id)}">${esc(o.name)}</button>`).join('')}</div>`, (el, close) => {
+    el.onclick = e => { const b = e.target.closest('[data-o]'); if(!b) return; const o = others.find(x => x.id === b.dataset.o); close(); reportSheet({id:o.id, name:o.name}, o.cid); }; });
+}
+const ctx = {
+  B: () => B, me: () => me, myId: () => myId, app, errMsg, clean: cleanText, isBlocked,
+  openChat: cid => renderChat(cid), cleanup: cleanupView, view: f => unsubView.push(f),
+  exit: () => { tab = 'find'; findMode = 'groups'; renderMain(); },
+  changed: () => { if($('.tabs')){ $('.tabs').outerHTML = tabsBar(); bindTabs(); }
+    const q = $('#qk2'); if(q && tab === 'find' && !overlayOpen()){ q.innerHTML = quick.html(); quick.bind(q); } },
+  scanOut, scanIn, pickReport, hurt: t => welfare.hurtLevel(t), nudge: (l, t, go, edit) => welfare.hurtNudge(l, t, go, edit),
+  helpMenu: () => welfare.helpMenu(),
+  report: (target, reason, text) => reportSheet(target, '', reason, text),
+};
+const welfare = createWelfare({...ctx, pickReport: () => pickReport(), report: (t, r) => reportSheet(t, '', r)});
+const quick = createQuick(ctx);
+const groups = createGroups(ctx);
 
 /* =============== certificate & stats snapshot =============== */
 
@@ -1124,7 +1320,7 @@ function enterApp(){
     {sel:'.tabs [data-t=practice]', title:'🎮 תרגול', text:'שיעורים קצרים ומשחקים: בועות, זיכרון ו-60 שניות.'},
     {sel:'.tabs [data-t=chats]', title:'💬 צ׳אטים', text:'הודעות, קביעת מפגשים ושיחות וידאו.'},
     {sel:'.tabs [data-t=profile]', title:'⭐ פרופיל', text:'הכוכבים, התגים ומה אומרים עליך.'}]); }, 1400);
-  heartbeat(); B.isAdmin(myId).then(v => { isAdm = v; if(v && tab === 'profile' && !overlayOpen()) renderMain(); });
+  quick.start(); heartbeat(); B.isAdmin(myId).then(v => { isAdm = v; if(v && tab === 'profile' && !overlayOpen()) renderMain(); });
   renderMain();
 }
 
@@ -1133,7 +1329,7 @@ async function boot(){
   try { B = window.CHAVRUTA_FIREBASE ? await firebaseBackend(window.CHAVRUTA_FIREBASE) : localBackend(); }
   catch(e){ console.error(e); hideSplash(); app.innerHTML = '<div class="page center"><div class="brand">חברותא</div><div class="card empty">לא הצלחנו להתחבר. בדוק את החיבור לאינטרנט.<br><button class="btn sm" onclick="location.reload()" style="margin-top:12px">נסה שוב</button></div></div>'; return; }
   B.onAuth(async uid => {
-    unsubChats && unsubChats(); unsubMe && unsubMe(); unsubChats = unsubMe = null; cleanupView();
+    unsubChats && unsubChats(); unsubMe && unsubMe(); unsubChats = unsubMe = null; cleanupView(); quick.stop();
     myId = uid; me = null; chats = []; tab = firstTab || 'home'; firstTab = null;
     isAdm = false;
     if(!uid){ hideSplash(); return localStorage.getItem('cv_intro') ? renderAuth() : renderIntro(() => renderAuth('register')); }

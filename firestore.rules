@@ -70,5 +70,36 @@ service cloud.firestore {
         allow read, write: if memberOf(cid);
       }
     }
+
+    // עזרה נקודתית: כל משתמש מבקש; מי שיכול לעזור "לוקח" בקשה פתוחה אחת בלבד
+    match /quick/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.by == request.auth.uid && request.resource.data.text is string && request.resource.data.text.size() <= 200;
+      allow update: if signedIn() && (resource.data.by == request.auth.uid
+        || (resource.data.status == 'open' && request.resource.data.status == 'taken' && request.resource.data.takenBy == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','takenBy','takenByName'])));
+      allow delete: if signedIn() && resource.data.by == request.auth.uid;
+    }
+
+    // קבוצות לימוד: כל משתמש רואה ומצטרף; חברים כותבים הודעות, מסמני נוכחות ולוח ציור
+    function gMember(gid) { return signedIn() && request.auth.uid in get(/databases/$(db)/documents/groups/$(gid)).data.members; }
+    match /groups/{gid} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.hostId == request.auth.uid && request.resource.data.members.size() == 1 && request.resource.data.max <= 6;
+      allow update: if signedIn() && (resource.data.hostId == request.auth.uid
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members','names','live']) && request.resource.data.members.size() <= resource.data.max
+           && (request.auth.uid in resource.data.members || request.auth.uid in request.resource.data.members));
+      allow delete: if signedIn() && resource.data.hostId == request.auth.uid;
+      match /messages/{mid} {
+        allow read: if gMember(gid);
+        allow create: if gMember(gid) && request.resource.data.from == request.auth.uid && request.resource.data.text is string && request.resource.data.text.size() <= 1000;
+      }
+      match /sig/{doc} {
+        allow read, write: if gMember(gid);
+      }
+      match /board/{doc} {
+        allow read, write: if gMember(gid);
+      }
+    }
   }
 }

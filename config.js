@@ -8,3 +8,8 @@ window.CHAVRUTA_FIREBASE = {
   messagingSenderId: "1089716327885",
   appId: "1:1089716327885:web:e64790efc4b7aa2c34e084"
 };
+
+// אימות טלפון: false = מצב הדגמה (הקוד מוצג בהודעה על המסך, בלי SMS אמיתי).
+// true = SMS אמיתי דרך Firebase Phone Auth. צריך להפעיל ב-Firebase: Authentication → Sign-in method → Phone,
+// ולהוסיף את הדומיין ב-Authorized domains. ייתכן שיידרש מעבר לחבילת Blaze (תשלום לפי הודעה).
+window.CHAVRUTA_PHONE_AUTH = false;
