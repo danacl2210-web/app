@@ -31,7 +31,7 @@ module.exports = async (req, res) => {
   res.setHeader('cache-control', 'no-store');
   if(req.method !== 'POST') return res.status(405).json({error:'method'});
   const key = process.env.ANTHROPIC_API_KEY;
-  if(!key && !process.env.GEMINI_API_KEY) return res.status(503).json({error:'not_configured'});
+  if(!key && !process.env.GEMINI_API_KEY && !process.env.GROQ_API_KEY) return res.status(503).json({error:'not_configured'});
   let b = req.body; if(typeof b === 'string'){ try { b = JSON.parse(b); } catch { b = {}; } } b ||= {};
   const mode = MODES[b.mode] ? b.mode : 'hint';
   const msgs = (Array.isArray(b.messages) ? b.messages : []).slice(-12).map(m => ({role:m.role === 'assistant' ? 'assistant' : 'user', content:String(m.content || '').slice(0, 1800)})).filter(m => m.content.trim());
@@ -91,11 +91,29 @@ module.exports = async (req, res) => {
     } catch(e){ last = {status:504, detail:`gemini ${e?.name || 'error'}: ${String(e?.message || e).slice(0, 90)}`}; }
     return {fail:last};
   };
-  // קודם Anthropic (אם יש מפתח), ואם אין קרדיט או שיש תקלה, עוברים ל-Gemini (אם הוגדר GEMINI_API_KEY)
+  const tryGroq = async () => {
+    const qk = process.env.GROQ_API_KEY; if(!qk) return {fail:null};
+    let last = null;
+    for(const model of (process.env.GROQ_MODEL ? [process.env.GROQ_MODEL] : ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'])){
+      try {
+        const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {method:'POST', headers:{'authorization':'Bearer ' + qk, 'content-type':'application/json'},
+          body:JSON.stringify({model, max_tokens:maxTokens, temperature:0.6, messages:[{role:'system', content:system}, ...msgs]}), signal:AbortSignal.timeout(12000)});
+        const j = await r.json();
+        const text = j.choices?.[0]?.message?.content?.trim();
+        if(r.ok && text) return {text};
+        last = {status:r.status, detail:`groq ${model}: ${j.error?.type || ''} ${j.error?.message || 'empty'}`.slice(0, 160)};
+        if(![400, 404, 429, 500, 503].includes(r.status)) break;
+      } catch(e){ last = {status:504, detail:`groq ${model} ${e?.name || 'error'}`}; }
+    }
+    return {fail:last};
+  };
+  // קודם Anthropic (אם יש מפתח), אחר כך Gemini (GEMINI_API_KEY), ואחר כך Groq (GROQ_API_KEY): מי שזמין ופנוי עונה
   let a1 = key ? await tryAnthropic() : {fail:null};
   if(a1.text) return res.status(200).json({text:a1.text});
   const a2 = await tryGemini();
   if(a2.text) return res.status(200).json({text:a2.text});
-  const last = a2.fail || a1.fail;
+  const a3 = await tryGroq();
+  if(a3.text) return res.status(200).json({text:a3.text});
+  const last = a3.fail || a2.fail || a1.fail;
   return res.status(502).json({error:'upstream ' + (last?.status || ''), detail:last?.detail || ''});
 };
