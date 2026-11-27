@@ -66,16 +66,23 @@ module.exports = async (req, res) => {
   const tryGemini = async () => {
     const gk = process.env.GEMINI_API_KEY; if(!gk) return {fail:null};
     let last = null;
-    for(const model of (process.env.GEMINI_MODEL ? [process.env.GEMINI_MODEL] : ['gemini-2.5-flash', 'gemini-2.0-flash'])){
-      try {
-        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${gk}`, {method:'POST', headers:{'content-type':'application/json'},
-          body:JSON.stringify({systemInstruction:{parts:[{text:system}]}, contents:msgs.map(m => ({role:m.role === 'assistant' ? 'model' : 'user', parts:[{text:m.content}]})), generationConfig:{maxOutputTokens:maxTokens}}), signal:AbortSignal.timeout(25000)});
-        const j = await r.json();
-        if(r.ok){ const text = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim(); if(text) return {text}; last = {status:200, detail:`${model}: empty`}; continue; }
-        last = {status:r.status, detail:`gemini ${model}: ${j.error?.status || ''} ${j.error?.message || ''}`.slice(0, 160)};
-        if(r.status !== 404) break;
-      } catch(e){ last = {status:504, detail:'gemini timeout'}; break; }
-    }
+    const run = async model => {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${gk}`, {method:'POST', headers:{'content-type':'application/json'},
+        body:JSON.stringify({systemInstruction:{parts:[{text:system}]}, contents:msgs.map(m => ({role:m.role === 'assistant' ? 'model' : 'user', parts:[{text:m.content}]})), generationConfig:{maxOutputTokens:maxTokens}}), signal:AbortSignal.timeout(25000)});
+      const j = await r.json();
+      if(r.ok){ const text = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim(); return text ? {text} : {status:200, detail:`${model}: empty`}; }
+      return {status:r.status, detail:`gemini ${model}: ${j.error?.status || ''} ${j.error?.message || ''}`.slice(0, 160)};
+    };
+    try {
+      let tried = new Set(), list = process.env.GEMINI_MODEL ? [process.env.GEMINI_MODEL] : ['gemini-flash-latest', 'gemini-2.5-flash'];
+      for(const m of list){ tried.add(m); const x = await run(m); if(x.text) return x; last = x; if(x.status !== 404) return {fail:last}; }
+      // כל הדגמים שניסינו לא קיימים: מגלים אילו דגמים זמינים למפתח הזה ומנסים את החדשים ביותר מסוג flash
+      const lr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=100&key=${gk}`, {signal:AbortSignal.timeout(10000)});
+      const lj = await lr.json();
+      const found = (lj.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent')).map(m => m.name.replace('models/', ''))
+        .filter(n => /^gemini-[\d.]+-flash(-lite)?$/.test(n) && !tried.has(n)).sort((x, y) => parseFloat(y.split('-')[1]) - parseFloat(x.split('-')[1]) || (x.includes('lite') ? 1 : -1)).slice(0, 3);
+      for(const m of found){ const x = await run(m); if(x.text) return x; last = x; }
+    } catch(e){ last = {status:504, detail:'gemini timeout'}; }
     return {fail:last};
   };
   // קודם Anthropic (אם יש מפתח), ואם אין קרדיט או שיש תקלה, עוברים ל-Gemini (אם הוגדר GEMINI_API_KEY)
