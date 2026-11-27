@@ -3,7 +3,7 @@ import { esc, avatar, toast, sound } from './ui.js';
 import { createBoard } from './board.js';
 import { createGame } from './coplay.js';
 
-const ICE = {iceServers:[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']}]};
+import { getIce } from './ice.js';
 let active = null;
 export const inCall = () => !!active;
 
@@ -43,6 +43,9 @@ function wire(B, cid, el, pc, stream, myRole, me, other){
   unsubs.push(B.onCallCands(cid, myRole === 'caller' ? 'callee' : 'caller', list => {
     list.forEach(c => { const k = JSON.stringify(c); if(!seen.has(k)){ seen.add(k); queue.push(new RTCIceCandidate(c)); } }); flush();
   }));
+  const rb = document.createElement('button'); rb.className = 'callrep'; rb.type = 'button'; rb.textContent = '🚩 דווח'; rb.setAttribute('aria-label','דיווח על המשתתף בשיחה');
+  rb.onclick = () => window.dispatchEvent(new CustomEvent('cv-report', {detail:{id:other?.id ?? other, name:other?.name || '', cid}}));
+  el.querySelector('.callinfo')?.appendChild(rb);
   const bar = el.querySelector('#cb');
   bar.innerHTML = `<button id="mu" aria-label="השתקה">🎤</button><button id="ca" aria-label="מצלמה">📷</button><button id="fl" aria-label="החלפת מצלמה">🔄</button><button class="end" id="hu" aria-label="ניתוק">📞</button>`;
   const toggle = (kind, btn) => { const t = stream?.getTracks().filter(x => x.kind === kind); if(!t?.length) return; const on = !t[0].enabled; t.forEach(x => x.enabled = on); btn.classList.toggle('off', !on); };
@@ -126,7 +129,7 @@ function wire(B, cid, el, pc, stream, myRole, me, other){
     unsubs.forEach(f => f && f()); stream?.getTracks().forEach(t => t.stop()); try { pc.close(); } catch {}
     el.remove();
     if(notify){ B.callSet(cid, {state:'ended'}).catch(() => {}); B.updateChat(cid, {'call.active': false}).catch(() => {}); }
-    if(started) toast(`השיחה הסתיימה · ${el.querySelector('#ct').textContent}`);
+    if(started){ toast(`השיחה הסתיימה · ${el.querySelector('#ct').textContent}`); const secs = Math.round((Date.now() - started) / 1000); setTimeout(() => window.dispatchEvent(new CustomEvent('cv-call-end', {detail:{cid, secs}})), 900); }
   }
   active = {end, cid};
   return {unsubs, end, setStatus: t => { const s = el.querySelector('#cs'); if(s) s.textContent = t; }};
@@ -140,7 +143,7 @@ export async function startCall(B, cid, me, other){
   const stream = await getMedia();
   if(!stream) toast('אין גישה למצלמה ולמיקרופון. אפשר לאשר בהגדרות הדפדפן');
   await B.callReset(cid);
-  const pc = new RTCPeerConnection(ICE);
+  const pc = new RTCPeerConnection(getIce());
   active = null;
   const w = wire(B, cid, el, pc, stream, 'caller', me, other);
   const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
@@ -153,8 +156,8 @@ export async function startCall(B, cid, me, other){
     if(!d) return;
     if(d.state === 'declined'){ toast(`השיחה נדחתה. אפשר לנסות שוב אחר כך`); w.end(false); B.updateChat(cid,{'call.active':false}).catch(()=>{}); return; }
     if(d.state === 'ended'){ w.end(false); return; }
-    if(d.answer && !pc.currentRemoteDescription){ clearInterval(ring); w.setStatus('מתחבר…');
-      await pc.setRemoteDescription(new RTCSessionDescription(d.answer)); }
+    if(d.answer && !pc.currentRemoteDescription && pc.signalingState === 'have-local-offer'){ clearInterval(ring); w.setStatus('מתחבר…');
+      try { await pc.setRemoteDescription(new RTCSessionDescription(d.answer)); } catch(e){ console.warn(e); } }
   }));
 }
 
@@ -163,7 +166,7 @@ export async function answerCall(B, cid, me, other){
   const el = ui(other.id, other.name, 'מתחבר…');
   active = {end(){}};
   const stream = await getMedia();
-  const pc = new RTCPeerConnection(ICE);
+  const pc = new RTCPeerConnection(getIce());
   active = null;
   const w = wire(B, cid, el, pc, stream, 'callee', me, other);
   const d = await B.getCall(cid);

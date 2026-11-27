@@ -4,7 +4,7 @@ import { ICON, SUBJECTS } from './games.js';
 import { topicsOf } from './topics.js';
 import { createBoard } from './board.js';
 
-const ICE = {iceServers:[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']}]};
+import { getIce } from './ice.js';
 const MAXCALL = 4;
 let gcall = null;
 export const inGroupCall = () => !!gcall;
@@ -142,7 +142,7 @@ export function createGroups(ctx){
 
     function connect(pid, pname, offerer, theirJ){
       if(peers[pid]) return;
-      const pc = new RTCPeerConnection(ICE), t = tile(pid, pname, false), remote = new MediaStream(), sid = offerer ? `${ME}_${pid}` : `${pid}_${ME}`;
+      const pc = new RTCPeerConnection(getIce()), t = tile(pid, pname, false), remote = new MediaStream(), sid = offerer ? `${ME}_${pid}` : `${pid}_${ME}`;
       const P = peers[pid] = {pc, t, unsubs:[]};
       t.querySelector('video').srcObject = remote;
       pc.ontrack = e => { (e.streams[0] ? e.streams[0].getTracks() : [e.track]).forEach(x => { if(!remote.getTracks().includes(x)) remote.addTrack(x); }); t.querySelector('.gav').style.display = remote.getVideoTracks().length ? 'none' : ''; };

@@ -145,5 +145,16 @@ export function createWelfare(ctx){
   const moodCard = () => moodToday() ? '' : `<div class="card" id="mood"><b class="fred big">איך עבר היום? 💭</b><div class="small muted">רק אתה רואה. נשמר במכשיר שלך.</div>
     <div class="row" style="justify-content:space-around;margin-top:10px">${MOODS.map(([e,v]) => `<button class="moodb" data-v="${v}" aria-label="מצב רוח ${v} מתוך 5">${e}</button>`).join('')}</div></div>`;
 
-  return {scan, hurtLevel, supportSheet, friendSheet, helpMenu, hurtNudge, moodCard, saveMood};
+  function safetySheet(){
+    sheet(`<div style="text-align:center"><div style="font-size:46px">🛡️</div><h3>איך אנחנו שומרים עליך</h3></div>
+      <div class="hsteps" style="margin:10px 0">
+        <div>🔒 <b>הטלפון שלך לא מוצג.</b> אחרים רואים רק שם וכיתה.</div>
+        <div>🎓 <b>רק כיתות קרובות.</b> תלמידי ז׳–ח׳ מותאמים רק לכיתה אחת מעל או מתחת, ודורשים אישור הורה.</div>
+        <div>💬 <b>זיהוי הודעות פוגעות</b> מתבצע במכשיר, והודעה פוגענית מקבלת הצעה לשנות לפני השליחה.</div>
+        <div>💙 <b>עזרה למי שנפגע.</b> קווי סיוע, אפשרות לספר למבוגר מהימן, ודיווח בלחיצה.</div>
+        <div>🚩 <b>דיווח וחסימה</b> בצ׳אט ובשיחת וידאו. דיווחים דחופים מגיעים למנהלים קודם.</div>
+        <div>📝 <b>מצב רוח יומי</b> נשמר רק אצלך במכשיר.</div></div>
+      <p class="small muted">במצב סכנה מיידית פונים ל-100 או 101.</p><button class="btn" data-x>הבנתי</button>`, (el, close) => { el.querySelector('[data-x]').onclick = close; });
+  }
+  return {scan, hurtLevel, supportSheet, friendSheet, helpMenu, hurtNudge, moodCard, saveMood, safetySheet};
 }

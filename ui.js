@@ -22,6 +22,7 @@ export function vibrate(p){ try { navigator.vibrate?.(p); } catch {} }
 // צלילים קטנים בלי קבצים
 let ac;
 export function sound(kind){
+  if(window.CV_QUIET) return;
   try {
     ac ||= new (window.AudioContext || window.webkitAudioContext)();
     const notes = {ok:[660,880], bad:[220,180], win:[523,659,784,1046], ring:[880,660]}[kind] || [440];

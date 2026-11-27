@@ -20,6 +20,9 @@ service cloud.firestore {
     }
 
     // צ׳אטים: רק שני המשתתפים רואים וכותבים
+    match /classes/{code} {
+      allow read, write: if signedIn();
+    }
     match /chats/{cid} {
       allow read: if isAdmin() || (signedIn() && (resource == null || request.auth.uid in resource.data.members));
       allow create: if signedIn() && request.auth.uid in request.resource.data.members && request.resource.data.members.size() == 2;

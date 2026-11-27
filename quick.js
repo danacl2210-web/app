@@ -13,7 +13,7 @@ export function createQuick(ctx){
   const mineOpen = () => list.find(r => r.by === myId() && r.status === 'open' && alive(r));
   const forMe = () => list.filter(r => r.status === 'open' && alive(r) && r.by !== myId() && !ctx.isBlocked(r.by)
     && ((me().help || []).includes(r.subject))).sort((a, b) => b.at - a.at);
-  const count = () => forMe().length;
+  const count = () => window.CV_QUIET ? 0 : forMe().length;
 
   function start(){
     unsub && unsub();
