@@ -76,8 +76,12 @@ module.exports = async (req, res) => {
       return {status:r.status, detail:`gemini ${model}: ${j.error?.status || ''} ${j.error?.message || ''}`.slice(0, 160)};
     };
     try {
-      let tried = new Set(), list = process.env.GEMINI_MODEL ? [process.env.GEMINI_MODEL] : ['gemini-flash-latest', 'gemini-2.5-flash'];
-      for(const m of list){ tried.add(m); const x = await run(m); if(x.text) return x; last = x; if(x.status !== 404) return {fail:last}; }
+      let tried = new Set(), list = process.env.GEMINI_MODEL ? [process.env.GEMINI_MODEL] : ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'], all404 = true;
+      for(const m of list){ tried.add(m); const x = await run(m); if(x.text) return x; last = x;
+        if(x.status !== 404) all404 = false;
+        if(![404, 429, 500, 503].includes(x.status)) return {fail:last};          // שגיאה אחרת (מפתח, חסימה): אין טעם להמשיך
+        if(x.status === 503) await new Promise(r => setTimeout(r, 800)); }          // עומס זמני אצל Google: מנסים דגם אחר
+      if(!all404) return {fail:last};
       // כל הדגמים שניסינו לא קיימים: מגלים אילו דגמים זמינים למפתח הזה ומנסים את החדשים ביותר מסוג flash
       const lr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=100&key=${gk}`, {signal:AbortSignal.timeout(10000)});
       const lj = await lr.json();
