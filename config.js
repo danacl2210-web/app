@@ -18,5 +18,9 @@ window.CHAVRUTA_PHONE_AUTH = false;
 // אפשרות חינמית: נרשמים ב-metered.ca (Open Relay, 20GB בחודש בחינם), ומעתיקים לכאן את ה-urls, username ו-credential.
 // ברירת המחדל כאן היא שרת ציבורי לבדיקות. הוא עלול להיות איטי או לא זמין, ולכן עדיף מפתח משלכם.
 window.CHAVRUTA_TURN = [
-  {urls:['turn:openrelay.metered.ca:80','turn:openrelay.metered.ca:443','turns:openrelay.metered.ca:443?transport=tcp'], username:'openrelayproject', credential:'openrelayproject'},
+  {urls:'stun:stun.relay.metered.ca:80'},
+  {urls:'turn:global.relay.metered.ca:80', username:'9f898a2089741c6ac0c0284b', credential:'ttIH4vgep04GCcAE'},
+  {urls:'turn:global.relay.metered.ca:80?transport=tcp', username:'9f898a2089741c6ac0c0284b', credential:'ttIH4vgep04GCcAE'},
+  {urls:'turn:global.relay.metered.ca:443', username:'9f898a2089741c6ac0c0284b', credential:'ttIH4vgep04GCcAE'},
+  {urls:'turns:global.relay.metered.ca:443?transport=tcp', username:'9f898a2089741c6ac0c0284b', credential:'ttIH4vgep04GCcAE'},
 ];
