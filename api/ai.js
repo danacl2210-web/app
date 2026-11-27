@@ -66,11 +66,13 @@ module.exports = async (req, res) => {
   const tryGemini = async () => {
     const gk = process.env.GEMINI_API_KEY; if(!gk) return {fail:null};
     let last = null;
-    const run = async model => {
+    const run = async (model, think = true) => {
+      const gc = {maxOutputTokens:maxTokens}; if(think) gc.thinkingConfig = {thinkingBudget:0};   // בלי "חשיבה" ארוכה: מהיר יותר
       const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${gk}`, {method:'POST', headers:{'content-type':'application/json'},
-        body:JSON.stringify({systemInstruction:{parts:[{text:system}]}, contents:msgs.map(m => ({role:m.role === 'assistant' ? 'model' : 'user', parts:[{text:m.content}]})), generationConfig:{maxOutputTokens:maxTokens}}), signal:AbortSignal.timeout(25000)});
+        body:JSON.stringify({systemInstruction:{parts:[{text:system}]}, contents:msgs.map(m => ({role:m.role === 'assistant' ? 'model' : 'user', parts:[{text:m.content}]})), generationConfig:gc}), signal:AbortSignal.timeout(20000)});
       const j = await r.json();
-      if(r.ok){ const text = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim(); return text ? {text} : {status:200, detail:`${model}: empty`}; }
+      if(r.ok){ const text = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim(); return text ? {text} : {status:200, detail:`${model}: empty (${j.candidates?.[0]?.finishReason || j.promptFeedback?.blockReason || '?'})`}; }
+      if(r.status === 400 && think && /think/i.test(j.error?.message || '')) return run(model, false);
       return {status:r.status, detail:`gemini ${model}: ${j.error?.status || ''} ${j.error?.message || ''}`.slice(0, 160)};
     };
     try {
@@ -82,7 +84,7 @@ module.exports = async (req, res) => {
       const found = (lj.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent')).map(m => m.name.replace('models/', ''))
         .filter(n => /^gemini-[\d.]+-flash(-lite)?$/.test(n) && !tried.has(n)).sort((x, y) => parseFloat(y.split('-')[1]) - parseFloat(x.split('-')[1]) || (x.includes('lite') ? 1 : -1)).slice(0, 3);
       for(const m of found){ const x = await run(m); if(x.text) return x; last = x; }
-    } catch(e){ last = {status:504, detail:'gemini timeout'}; }
+    } catch(e){ last = {status:504, detail:`gemini ${e?.name || 'error'}: ${String(e?.message || e).slice(0, 90)}`}; }
     return {fail:last};
   };
   // קודם Anthropic (אם יש מפתח), ואם אין קרדיט או שיש תקלה, עוברים ל-Gemini (אם הוגדר GEMINI_API_KEY)
