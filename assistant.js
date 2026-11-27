@@ -20,7 +20,7 @@ export function createAssistant(ctx){
       const r = await fetch('/api/ai', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({mode, messages, idToken, grade:me?.grade, subject:extra.subject || ''})});
       if(r.status === 429) return {err:'הגעת למגבלת השימוש להיום. נסה שוב מחר.'};
       if(r.status === 503 || r.status === 404) return {err:'העוזר עדיין לא הופעל באתר הזה. (מנהל האתר צריך להוסיף מפתח AI ב-Vercel.)'};
-      if(!r.ok) return {err:'העוזר לא זמין כרגע. נסה שוב בעוד רגע.'};
+      if(!r.ok){ let d = ''; try { const e = await r.json(); d = [e.error, e.detail].filter(Boolean).join(': '); } catch {} return {err:'העוזר לא זמין כרגע. נסה שוב בעוד רגע.' + (d ? ` (פרטים טכניים: ${d.slice(0, 140)})` : ` (קוד ${r.status})`)}; }
       const j = await r.json(); localStorage.setItem(q.k, String(q.n + 1)); return {text:j.text || ''};
     } catch { return {err:'אין חיבור לעוזר. בדוק את החיבור לאינטרנט.'}; }
   }
