@@ -596,7 +596,7 @@ canvas#cf{position:fixed;inset:0;pointer-events:none;z-index:70}
 @media (min-width:960px){
   #deco span{font-size:44px}
   #app{max-width:none;margin:0;margin-right:240px;width:calc(100% - 240px)}
-  .page{width:100%;max-width:1080px;margin-inline:auto;padding:34px 40px 48px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 22px;align-items:start;align-content:start;grid-auto-flow:row dense}
+  .page{width:100%;max-width:1080px;margin-inline:auto;padding:34px 40px 48px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 22px;grid-auto-rows:10px;align-items:start;align-content:start;grid-auto-flow:row dense}
   .page>*{margin-bottom:0;min-width:0}
   .page>.hero,.page>.profhero,.page>.head,.page>.seg,.page>.statrow,.page>.list,.page>#res,.page>.empty,.page>h1,.page>h2{grid-column:1/-1}
   .page>.list,.page>#res{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px}
@@ -632,6 +632,15 @@ input[type=checkbox]{-webkit-appearance:checkbox!important;appearance:auto!impor
 <div id="rcv"></div>
 <a class="skip" href="#app">דלג לתוכן</a>
 <div id="app"></div>
+<script>
+(function(){var mq=matchMedia('(min-width:960px)'),ro=window.ResizeObserver?new ResizeObserver(function(){sched()}):null,t=0;
+function sched(){cancelAnimationFrame(t);t=requestAnimationFrame(run)}
+function run(){var pg=document.querySelector('#app .page');if(!pg)return;var on=mq.matches&&!pg.classList.contains('center')&&!pg.classList.contains('pp');
+Array.prototype.forEach.call(pg.children,function(el){if(!on){el.style.gridRowEnd='';return}
+var h=el.getBoundingClientRect().height;el.style.gridRowEnd='span '+Math.max(1,Math.ceil((h+18)/10));if(ro&&!el._ro){el._ro=1;ro.observe(el)}})}
+new MutationObserver(sched).observe(document.getElementById('app'),{childList:true,subtree:true});
+addEventListener('resize',sched);if(document.fonts&&document.fonts.ready)document.fonts.ready.then(sched);setTimeout(sched,600);})();
+</script>
 <script src="config.js"></script>
 <script type="module" src="app.js"></script>
 <noscript>כדי להשתמש בחברותא צריך להפעיל JavaScript.</noscript>
