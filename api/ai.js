@@ -1,4 +1,5 @@
 // פונקציית שרת של Vercel: "עוזר חברותא" (AI). המפתח לא נחשף לדפדפן.
+// אפשר להשתמש ב-GEMINI_API_KEY (מפתח חינמי מ-Google AI Studio) במקום או בנוסף ל-ANTHROPIC_API_KEY.
 // הגדרה: ב-Vercel › Settings › Environment Variables להוסיף ANTHROPIC_API_KEY (ואופציונלית FIREBASE_API_KEY, AI_MODEL).
 const hits = new Map();
 const LIMIT_USER = 60, LIMIT_ANON = 25, DAY = 864e5;
@@ -30,7 +31,7 @@ module.exports = async (req, res) => {
   res.setHeader('cache-control', 'no-store');
   if(req.method !== 'POST') return res.status(405).json({error:'method'});
   const key = process.env.ANTHROPIC_API_KEY;
-  if(!key) return res.status(503).json({error:'not_configured'});
+  if(!key && !process.env.GEMINI_API_KEY) return res.status(503).json({error:'not_configured'});
   let b = req.body; if(typeof b === 'string'){ try { b = JSON.parse(b); } catch { b = {}; } } b ||= {};
   const mode = MODES[b.mode] ? b.mode : 'hint';
   const msgs = (Array.isArray(b.messages) ? b.messages : []).slice(-12).map(m => ({role:m.role === 'assistant' ? 'assistant' : 'user', content:String(m.content || '').slice(0, 1800)})).filter(m => m.content.trim());
@@ -45,17 +46,43 @@ module.exports = async (req, res) => {
   h.push(now); hits.set(who, h); if(hits.size > 5000) hits.clear();
 
   const ctxLine = [b.grade && `כיתה: ${String(b.grade).slice(0, 8)}`, b.subject && `מקצוע: ${String(b.subject).slice(0, 30)}`].filter(Boolean).join(' · ');
-  const models = process.env.AI_MODEL ? [process.env.AI_MODEL] : ['claude-haiku-5-5', 'claude-haiku-4-5', 'claude-sonnet-4-5'];
-  let last = null;
-  for(const model of models){
-    try {
-      const r = await fetch('https://api.anthropic.com/v1/messages', {method:'POST', headers:{'x-api-key':key, 'anthropic-version':'2023-06-01', 'content-type':'application/json'},
-        body:JSON.stringify({model, max_tokens:mode === 'plan' ? 1100 : 800, system:MODES[mode] + (ctxLine ? `\nהקשר: ${ctxLine}` : ''), messages:msgs}), signal:AbortSignal.timeout(25000)});
-      const j = await r.json();
-      if(r.ok){ const text = (j.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n').trim(); return res.status(200).json({text}); }
-      last = {status:r.status, detail:`${model}: ${j.error?.type || ''} ${j.error?.message || ''}`.slice(0, 160)};
-      if(r.status !== 404 && j.error?.type !== 'not_found_error') break;   // רק שגיאת "מודל לא קיים" עוברת למודל הבא
-    } catch(e){ last = {status:504, detail:'timeout'}; break; }
-  }
+  const system = MODES[mode] + (ctxLine ? `\nהקשר: ${ctxLine}` : '');
+  const maxTokens = mode === 'plan' ? 1100 : 800;
+  const tryAnthropic = async () => {
+    const models = process.env.AI_MODEL ? [process.env.AI_MODEL] : ['claude-haiku-5-5', 'claude-haiku-4-5', 'claude-sonnet-4-5'];
+    let last = null;
+    for(const model of models){
+      try {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {method:'POST', headers:{'x-api-key':key, 'anthropic-version':'2023-06-01', 'content-type':'application/json'},
+          body:JSON.stringify({model, max_tokens:maxTokens, system, messages:msgs}), signal:AbortSignal.timeout(25000)});
+        const j = await r.json();
+        if(r.ok) return {text:(j.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n').trim()};
+        last = {status:r.status, detail:`${model}: ${j.error?.type || ''} ${j.error?.message || ''}`.slice(0, 160)};
+        if(r.status !== 404 && j.error?.type !== 'not_found_error') break;
+      } catch(e){ last = {status:504, detail:'timeout'}; break; }
+    }
+    return {fail:last};
+  };
+  const tryGemini = async () => {
+    const gk = process.env.GEMINI_API_KEY; if(!gk) return {fail:null};
+    let last = null;
+    for(const model of (process.env.GEMINI_MODEL ? [process.env.GEMINI_MODEL] : ['gemini-2.5-flash', 'gemini-2.0-flash'])){
+      try {
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${gk}`, {method:'POST', headers:{'content-type':'application/json'},
+          body:JSON.stringify({systemInstruction:{parts:[{text:system}]}, contents:msgs.map(m => ({role:m.role === 'assistant' ? 'model' : 'user', parts:[{text:m.content}]})), generationConfig:{maxOutputTokens:maxTokens}}), signal:AbortSignal.timeout(25000)});
+        const j = await r.json();
+        if(r.ok){ const text = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim(); if(text) return {text}; last = {status:200, detail:`${model}: empty`}; continue; }
+        last = {status:r.status, detail:`gemini ${model}: ${j.error?.status || ''} ${j.error?.message || ''}`.slice(0, 160)};
+        if(r.status !== 404) break;
+      } catch(e){ last = {status:504, detail:'gemini timeout'}; break; }
+    }
+    return {fail:last};
+  };
+  // קודם Anthropic (אם יש מפתח), ואם אין קרדיט או שיש תקלה, עוברים ל-Gemini (אם הוגדר GEMINI_API_KEY)
+  let a1 = key ? await tryAnthropic() : {fail:null};
+  if(a1.text) return res.status(200).json({text:a1.text});
+  const a2 = await tryGemini();
+  if(a2.text) return res.status(200).json({text:a2.text});
+  const last = a2.fail || a1.fail;
   return res.status(502).json({error:'upstream ' + (last?.status || ''), detail:last?.detail || ''});
 };
