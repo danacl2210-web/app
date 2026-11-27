@@ -51,8 +51,8 @@ export function createAssistant(ctx){
     const send = async () => { const tx = el.querySelector('#aix'), t = tx.value.trim(); if(!t || busy) return;
       if(ctx.hurt && ctx.hurt(t)) { toast('נסח מחדש בכבוד 🙏'); return; }
       tx.value = ''; hist[cur].push({role:'user', content:t}); busy = true; draw(); ctx.scanOut?.(t);
-      const r = await call(cur, hist[cur].slice(-10), {subject:el.querySelector('#ais')?.value || ''});
-      busy = false; if(r.err){ hist[cur].pop(); tx.value = t; toast(r.err); } else hist[cur].push({role:'assistant', content:r.text}); draw(); };
+      const r = await call(cur, hist[cur].filter(x => !x.err).slice(-10), {subject:el.querySelector('#ais')?.value || ''});
+      busy = false; hist[cur].push(r.err ? {role:'assistant', content:'⚠️ ' + r.err, err:true} : {role:'assistant', content:r.text}); draw(); };
     const bind = () => {
       el.querySelector('#aib').onclick = () => el.remove();
       el.querySelector('.aimodes').onclick = e => { const b = e.target.closest('[data-m]'); if(!b) return; cur = b.dataset.m; shell(); };
