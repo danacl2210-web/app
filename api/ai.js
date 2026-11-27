@@ -45,12 +45,17 @@ module.exports = async (req, res) => {
   h.push(now); hits.set(who, h); if(hits.size > 5000) hits.clear();
 
   const ctxLine = [b.grade && `כיתה: ${String(b.grade).slice(0, 8)}`, b.subject && `מקצוע: ${String(b.subject).slice(0, 30)}`].filter(Boolean).join(' · ');
-  try {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {method:'POST', headers:{'x-api-key':key, 'anthropic-version':'2023-06-01', 'content-type':'application/json'},
-      body:JSON.stringify({model:process.env.AI_MODEL || 'claude-haiku-5-5', max_tokens:mode === 'plan' ? 1100 : 800, system:MODES[mode] + (ctxLine ? `\nהקשר: ${ctxLine}` : ''), messages:msgs}), signal:AbortSignal.timeout(25000)});
-    const j = await r.json();
-    if(!r.ok) return res.status(502).json({error:'upstream', detail:j.error?.message?.slice(0, 120)});
-    const text = (j.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n').trim();
-    return res.status(200).json({text});
-  } catch(e){ return res.status(504).json({error:'timeout'}); }
+  const models = process.env.AI_MODEL ? [process.env.AI_MODEL] : ['claude-haiku-5-5', 'claude-haiku-4-5', 'claude-sonnet-4-5'];
+  let last = null;
+  for(const model of models){
+    try {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {method:'POST', headers:{'x-api-key':key, 'anthropic-version':'2023-06-01', 'content-type':'application/json'},
+        body:JSON.stringify({model, max_tokens:mode === 'plan' ? 1100 : 800, system:MODES[mode] + (ctxLine ? `\nהקשר: ${ctxLine}` : ''), messages:msgs}), signal:AbortSignal.timeout(25000)});
+      const j = await r.json();
+      if(r.ok){ const text = (j.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n').trim(); return res.status(200).json({text}); }
+      last = {status:r.status, detail:`${model}: ${j.error?.type || ''} ${j.error?.message || ''}`.slice(0, 160)};
+      if(r.status !== 404 && j.error?.type !== 'not_found_error') break;   // רק שגיאת "מודל לא קיים" עוברת למודל הבא
+    } catch(e){ last = {status:504, detail:'timeout'}; break; }
+  }
+  return res.status(502).json({error:'upstream ' + (last?.status || ''), detail:last?.detail || ''});
 };
