@@ -17,7 +17,9 @@ export function createAssistant(ctx){
     let idToken = null; try { idToken = await ctx.B().idToken?.(); } catch {}
     const me = ctx.me();
     try {
-      const r = await fetch('/api/ai', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({mode, messages, idToken, grade:me?.grade, subject:extra.subject || ''})});
+      const body = JSON.stringify({mode, messages, idToken, grade:me?.grade, subject:extra.subject || ''});
+      const post = () => fetch('/api/ai', {method:'POST', headers:{'content-type':'application/json'}, body});
+      let r = await post(); if([502, 503, 504].includes(r.status) && !(r.status === 503 && (await r.clone().json().catch(() => ({}))).error === 'not_configured')){ await new Promise(x => setTimeout(x, 2500)); r = await post(); }
       if(r.status === 429) return {err:'הגעת למגבלת השימוש להיום. נסה שוב מחר.'};
       if(r.status === 503 || r.status === 404) return {err:'העוזר עדיין לא הופעל באתר הזה. (מנהל האתר צריך להוסיף מפתח AI ב-Vercel.)'};
       if(!r.ok){ let d = ''; try { const e = await r.json(); d = [e.error, e.detail].filter(Boolean).join(': '); } catch {} return {err:'העוזר לא זמין כרגע. נסה שוב בעוד רגע.' + (d ? ` (פרטים טכניים: ${d.slice(0, 140)})` : ` (קוד ${r.status})`)}; }

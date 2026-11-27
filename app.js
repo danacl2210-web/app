@@ -7,6 +7,7 @@ import { TOPICS, tkey, ttopic, tsubject, topicsOf } from './topics.js';
 import { createWelfare } from './welfare.js';
 import { createQuick } from './quick.js';
 import { createExtras, applyTheme, quietNow } from './extras.js';
+import { t, dirOf, langPicker, bindLangPicker } from './i18n.js';
 import { createAssistant } from './assistant.js';
 import { createMore, LANGS } from './more.js';
 import { createGroups, inGroupCall } from './group.js';
@@ -49,12 +50,12 @@ function consentSheet(name, cb){
   sheet(`<div style="text-align:center"><div style="font-size:46px">👨‍👩‍👧</div><h3>צריך אישור של הורה</h3></div>
     <p class="muted" style="margin:6px 0 10px">בכיתה הזו נדרש אישור הורה או אפוטרופוס. ${esc(name || 'התלמיד')} ילמד/תלמד רק עם תלמידים מכיתות קרובות, והשיחות מוגנות בכללי חברותא.</p>
     <div class="hsteps"><div>✅ שימוש בחברותא ללמידה בין תלמידים</div><div>✅ צ׳אט ושיחות וידאו עם תלמידים מכיתות קרובות</div><div>✅ אפשר לבקש מחיקת החשבון בכל עת</div></div>
-    <label for="pn">שם ההורה / האפוטרופוס</label><input id="pn" maxlength="40" autocomplete="off">
+    <label for="pn">שם ההורה / האפוטרופוס (לאישור בלבד, לא נשמר)</label><input id="pn" maxlength="40" autocomplete="off">
     <label class="row" style="gap:8px;font-weight:600;margin-top:12px;align-items:flex-start"><input type="checkbox" id="pc" style="width:auto;margin-top:3px"><span>אני ההורה או האפוטרופוס, קראתי ואני מאשר/ת</span></label>
     <div class="err" id="pe"></div><button class="btn grn" id="pg">אישור והמשך</button>`, (el, close) => {
       el.querySelector('#pg').onclick = () => { const n = cleanText(el.querySelector('#pn').value.trim()); const e = el.querySelector('#pe');
         if(n.length < 2) return e.textContent = 'כתוב את שם ההורה'; if(!el.querySelector('#pc').checked) return e.textContent = 'צריך לסמן את האישור';
-        close(); cb({name:n, at:Date.now()}); };
+        close(); cb({ok:true, at:Date.now()}); };
     });
 }
 
@@ -327,25 +328,27 @@ function bindInstall(){ $('#inst') && ($('#inst').onclick = doInstall); $('#inst
 function renderAuth(mode = 'login'){
   cleanupView();
   const reg = mode === 'register';
-  app.innerHTML = `<div class="page center">
+  app.innerHTML = `<div class="page center" dir="${dirOf()}">
+    ${langPicker()}
     <img class="logo" src="logo.svg" alt=""><div class="brand">חברותא</div>
-    <p class="sub">תלמידים עוזרים לתלמידים. חינם.</p>
+    <p class="sub">${t('sub')}</p>
     <form class="card" id="f" novalidate><div class="rainbar"></div>
-      <h2 style="font-size:24px">${reg ? 'הרשמה 🎉' : 'ברוך שובך 👋'}</h2>
-      <label for="ph">מספר טלפון</label><input id="ph" class="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="050-1234567" required>
-      <label for="pw">סיסמה</label><input id="pw" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" minlength="6" placeholder="לפחות 6 תווים" required>
-      ${reg ? '<label for="pw2">שוב את הסיסמה</label><input id="pw2" type="password" autocomplete="new-password" required>' : ''}
+      <h2 style="font-size:24px">${reg ? t('regT') : t('loginT')}</h2>
+      <label for="ph">${t('phone')}</label><input id="ph" class="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="050-1234567" required>
+      <label for="pw">${t('pass')}</label><input id="pw" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" minlength="6" placeholder="${t('passPh')}" required>
+      ${reg ? `<label for="pw2">${t('pass2')}</label><input id="pw2" type="password" autocomplete="new-password" required>` : ''}
       <div class="err" id="er"></div>
-      <button class="btn" id="go">${reg ? 'יצירת חשבון' : 'כניסה'}</button>
-      <div class="row between" style="margin-top:8px"><button type="button" class="link" id="sw">${reg ? 'כבר יש לי חשבון' : 'אין לי חשבון – הרשמה'}</button>
-        ${reg ? '' : '<button type="button" class="link" id="fp">שכחתי סיסמה</button>'}</div>
+      <button class="btn" id="go">${reg ? t('create') : t('login')}</button>
+      <div class="row between" style="margin-top:8px"><button type="button" class="link" id="sw">${reg ? t('haveAcc') : t('noAcc')}</button>
+        ${reg ? '' : `<button type="button" class="link" id="fp">${t('forgot')}</button>`}</div>
       ${reg ? '<label class="row small" style="gap:8px;font-weight:600;margin-top:10px;align-items:flex-start"><input type="checkbox" id="agree" style="width:auto;margin-top:3px"><span>קראתי ואני מסכים ל<a href="#" id="rl" style="color:var(--sky)">כללי ההתנהגות</a> ול<a href="privacy.html" style="color:var(--sky)">מדיניות הפרטיות</a>. מספר הטלפון שלי לא מוצג לאף אחד.</span></label>' : ''}
     </form>
-    ${B.mode === 'local' ? '<p class="mode"><span class="badge-local">מצב מקומי</span> הנתונים נשמרים רק במכשיר הזה</p>' : ''}
+    ${B.mode === 'local' ? `<p class="mode"><span class="badge-local">${t('local')}</span> ${t('localD')}</p>` : ''}
   </div>`;
+  bindLangPicker(app, () => renderAuth(mode));
   $('#sw').onclick = () => renderAuth(reg ? 'login' : 'register');
-  { const v = document.createElement('button'); v.type = 'button'; v.className = 'link'; v.style.cssText = 'align-self:center;margin-top:2px'; v.textContent = '▶ איך זה עובד? (30 שניות)'; v.onclick = () => extras.explainer(); $('#f').after(v); }
-  if(!reg){ const d = document.createElement('button'); d.type = 'button'; d.className = 'link'; d.style.cssText = 'align-self:center;margin-top:6px'; d.textContent = '🎬 מצב הדגמה (לשופטים)';
+  { const v = document.createElement('button'); v.type = 'button'; v.className = 'link'; v.style.cssText = 'align-self:center;margin-top:2px'; v.textContent = t('how'); v.onclick = () => extras.explainer(); $('#f').after(v); }
+  if(!reg){ const d = document.createElement('button'); d.type = 'button'; d.className = 'link'; d.style.cssText = 'align-self:center;margin-top:6px'; d.textContent = t('demo');
     d.onclick = () => { localStorage.setItem('cv_demo','1'); location.reload(); }; $('#f').after(d); }
   $('#rl') && ($('#rl').onclick = e => { e.preventDefault(); rulesSheet(); });
   $('#fp') && ($('#fp').onclick = () => sheet(`<h3>שכחת סיסמה?</h3><p class="muted">שלח הודעה לצוות חברותא מהמספר שאיתו נרשמת, ונאפס לך את הסיסמה.</p><button class="btn" data-x>הבנתי</button>`,
@@ -353,10 +356,10 @@ function renderAuth(mode = 'login'){
   $('#f').onsubmit = async e => {
     e.preventDefault(); const er = $('#er'); er.textContent = '';
     const key = phoneKey($('#ph').value), pw = $('#pw').value;
-    if(!key) return er.textContent = 'כתוב מספר נייד ישראלי, למשל 050-1234567';
-    if(pw.length < 6) return er.textContent = 'הסיסמה צריכה לפחות 6 תווים';
-    if(reg && pw !== $('#pw2').value) return er.textContent = 'הסיסמאות לא זהות';
-    if(reg && !$('#agree').checked) return er.textContent = 'צריך לאשר את כללי ההתנהגות';
+    if(!key) return er.textContent = t('ePhone');
+    if(pw.length < 6) return er.textContent = t('ePw');
+    if(reg && pw !== $('#pw2').value) return er.textContent = t('ePw2');
+    if(reg && !$('#agree').checked) return er.textContent = t('eAgree');
     if(reg) return codeStep(key, $('#ph').value, pw);
     const btn = $('#go'); btn.disabled = true;
     try { await B.login(key, pw); } catch(err){ er.textContent = errMsg(err); btn.disabled = false; }
@@ -477,7 +480,7 @@ function renderOnboard(){
 const isUnread = c => c.lastFrom && c.lastFrom !== myId && (c.updatedAt||0) > (c.read?.[myId]||0);
 function tabsBar(){
   const T = [['home','🏠','בית'],['find','🔍','חברותא'],['practice','🎮','תרגול'],['chats','💬','צ׳אטים'],['profile','⭐','פרופיל']];
-  return `<nav class="tabs"><div>${T.map(([k,i,n]) => `<button data-t="${k}" class="${tab===k?'on':''}">${(k==='chats' && chats.some(isUnread)) || (k==='find' && quick.count() > 0) ? '<span class="dot"></span>' : ''}<b>${i}</b>${n}</button>`).join('')}</div></nav>`;
+  return `<nav class="tabs" aria-label="ניווט ראשי"><div>${T.map(([k,i,n]) => `<button data-t="${k}" ${tab===k?'aria-current="page"':''} class="${tab===k?'on':''}">${(k==='chats' && chats.some(isUnread)) || (k==='find' && quick.count() > 0) ? '<span class="dot"></span>' : ''}<b>${i}</b>${n}</button>`).join('')}</div></nav>`;
 }
 function bindTabs(){ app.querySelectorAll('.tabs [data-t]').forEach(b => b.onclick = () => { tab = b.dataset.t; vibrate(8); renderMain(); }); }
 function renderMain(){
@@ -1123,22 +1126,23 @@ async function renderAdmin(){
 /* =============== intro =============== */
 
 function renderIntro(done){
-  const S = [['🙋','תקוע בחומר?','מצא תלמיד שכבר הבין את זה, והוא יסביר לך. בחינם.','var(--pink)'],
-    ['🎥','נפגשים בווידאו','קובעים שעה שנוחה לשניכם ומדברים ישר מהאפליקציה.','var(--sky)'],
-    ['🎮','מתרגלים ומשחקים','שיעורים קצרים, כוכבים, רצפים ותגים. כמו משחק.','var(--grn)']];
+  const S = () => [['🙋',t('i1t'),t('i1d'),'var(--pink)'],['🎥',t('i2t'),t('i2d'),'var(--sky)'],['🎮',t('i3t'),t('i3d'),'var(--grn)']];
   let i = 0;
-  const draw = () => { app.innerHTML = `<div class="page center intro">
-    <div class="introbg" style="--c:${S[i][3]}"><div class="introi">${S[i][0]}</div></div>
-    <h1 class="fred" style="font-size:32px;text-align:center">${S[i][1]}</h1><p class="sub" style="font-size:18px;margin:0">${S[i][2]}</p>
-    <div class="dots">${S.map((_,k) => `<i class="${k===i?'on':''}"></i>`).join('')}</div>
-    <button class="btn" id="nx">${i < S.length-1 ? 'הבא' : 'בוא נתחיל 🚀'}</button>${i < S.length-1 ? '<button class="link" id="sk">דלג</button>' : ''}</div>`;
-    $('#nx').onclick = () => { if(i < S.length-1){ i++; vibrate(8); draw(); } else finish(); };
+  const draw = () => { const SS = S(); app.innerHTML = `<div class="page center intro" dir="${dirOf()}">
+    ${langPicker()}
+    <div class="introbg" style="--c:${SS[i][3]}"><div class="introi">${SS[i][0]}</div></div>
+    <h1 class="fred" style="font-size:32px;text-align:center">${SS[i][1]}</h1><p class="sub" style="font-size:18px;margin:0">${SS[i][2]}</p>
+    <div class="dots">${SS.map((_,k) => `<i class="${k===i?'on':''}"></i>`).join('')}</div>
+    <button class="btn" id="nx">${i < SS.length-1 ? t('next') : t('start')}</button>${i < SS.length-1 ? `<button class="link" id="sk">${t('skip')}</button>` : ''}
+    <div class="small muted" style="text-align:center">${t('by')}: רעות · ניקה · פדור · הדר</div></div>`;
+    bindLangPicker(app, draw);
+    $('#nx').onclick = () => { if(i < SS.length-1){ i++; vibrate(8); draw(); } else finish(); };
     $('#sk') && ($('#sk').onclick = finish); };
   const finish = () => { localStorage.setItem('cv_intro','1'); done(); };
   let x0 = null;
   app.ontouchstart = e => x0 = e.touches[0].clientX;
   app.ontouchend = e => { if(x0 === null || !$('.intro')) return; const dx = e.changedTouches[0].clientX - x0; x0 = null;
-    if(dx < -50 && i > 0){ i--; draw(); } else if(dx > 50 && i < S.length-1){ i++; draw(); } };
+    if(dx < -50 && i > 0){ i--; draw(); } else if(dx > 50 && i < S().length-1){ i++; draw(); } };
   draw();
 }
 
@@ -1454,3 +1458,10 @@ async function boot(){
 setInterval(() => { if(tab === 'home' && !overlayOpen() && me) renderMain(); }, 60000); // רענון ספירה לאחור של מפגשים
 if('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 boot();
+
+
+/* =============== offline banner & accessibility landmarks =============== */
+{ const bar = document.createElement('div'); bar.className = 'offbar'; bar.setAttribute('role', 'status'); bar.textContent = '📡 אין חיבור לאינטרנט. חלק מהפעולות לא יעבדו עד שהחיבור יחזור';
+  const upd = () => { if(!bar.isConnected) document.body.appendChild(bar); bar.classList.toggle('show', !navigator.onLine); };
+  addEventListener('online', upd); addEventListener('offline', upd); upd();
+  app.setAttribute('role', 'main'); app.setAttribute('aria-label', 'חברותא'); }

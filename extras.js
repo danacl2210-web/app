@@ -156,7 +156,7 @@ export function createExtras(ctx){
       el.innerHTML = `<h3>👨‍👩‍👧 תצוגת הורים</h3><p class="small muted">מוצגים נתוני שימוש כלליים בלבד. תוכן ההודעות והשיחות פרטי ואינו מוצג.</p>
         <div class="statrow"><div class="stat"><b>${cs.length}</b><small>שיחות צ׳אט</small></div><div class="stat"><b>${sess}</b><small>מפגשים השבוע</small></div><div class="stat"><b>${calls}</b><small>שיחות וידאו</small></div></div>
         <div class="card" style="margin:10px 0"><div class="small muted">חברותות</div>${cs.map(c => esc(c.names?.[otherOf(c)] || '')).filter(Boolean).join(' · ') || '<span class="muted">אין עדיין</span>'}</div>
-        <div class="card" style="margin:10px 0"><div class="small muted">אישור הורה</div>${me().parent ? `✅ ${esc(me().parent.name)} · ${new Date(me().parent.at).toLocaleDateString('he-IL')}` : 'לא נדרש בכיתה זו'}</div>
+        <div class="card" style="margin:10px 0"><div class="small muted">אישור הורה</div>${me().parent ? `✅ אושר ב-${new Date(me().parent.at).toLocaleDateString('he-IL')}` : 'לא נדרש בכיתה זו'}</div>
         <div class="row"><button class="btn alt grow" id="pq">🌙 שעות שקטות</button><button class="btn alt grow" id="pr">🚩 דיווח לצוות</button></div>
         <div style="height:8px"></div><button class="btn" data-x>סגירה</button>`;
     };
