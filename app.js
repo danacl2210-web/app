@@ -906,7 +906,7 @@ function renderProfile(){
   const ts = totalStars(me), lv = level(me), prog = (ts % 50) / 50 * 100;
   const lessons = Object.values(me.progress||{}).reduce((a,b) => a+b, 0);
   const avTxt = DAYS.map((d,i) => { const bs = BLOCKS.filter((_,k) => (me.avail||[]).includes(`${i}-${k}`)).map(b => b.n); return bs.length ? `${d}: ${bs.join(', ')}` : null; }).filter(Boolean);
-  app.innerHTML = `<div class="page">
+  app.innerHTML = `<div class="page pp">
     <div class="card profhero" style="text-align:center">
       <div style="display:flex;justify-content:center">${avatar(myId, me.name, 88)}</div>
       <h2 style="margin-top:10px">${esc(me.name)}</h2><div class="muted">כיתה ${esc(me.grade)}</div>${me.bio ? `<p style="margin:8px 0 0">${esc(me.bio)}</p>` : ''}</div>
@@ -939,10 +939,12 @@ function renderProfile(){
     <button class="btn alt" id="ed">✏️ עריכת פרופיל וזמנים</button>
     ${isStandalone() ? '' : '<button class="btn" id="in">📲 התקנת האפליקציה</button>'}
     <button class="btn alt" id="sh">💫 שיתוף עם חברים</button>
+    ${matchMedia('(min-width:960px)').matches || localStorage.getItem('cv_layout') === 'phone' ? `<button class="btn alt" id="lay">${localStorage.getItem('cv_layout') === 'phone' ? '🖥️ מעבר לתצוגת מחשב' : '📱 מעבר לתצוגת טלפון'}</button>` : ''}
     <button class="btn alt" id="lo">יציאה</button>
     <div class="row between"><a class="link small" href="privacy.html">מדיניות פרטיות</a><button class="link small" id="prules">🛡️ כללי ההתנהגות</button><button class="link small" id="del" style="color:var(--pink)">מחיקת החשבון</button></div>
     ${B.mode === 'local' ? '<p class="mode"><span class="badge-local">מצב מקומי</span> הנתונים נשמרים רק במכשיר הזה</p>' : ''}
   </div>`;
+  $('#lay')?.addEventListener('click', () => { try{ if(localStorage.getItem('cv_layout') === 'phone') localStorage.removeItem('cv_layout'); else localStorage.setItem('cv_layout','phone'); }catch(e){} location.reload(); });
   $('#rate').onclick = () => me.rated ? reviewsSheet() : rateSheet();
   B.listThanks(myId).then(ts => { const box = $('#mythx'); if(box && ts.length) box.innerHTML = `<div class="card"><b class="fred big">💛 מה אומרים עליי</b>${ts.slice(0,5).map(t => `<div class="thx">"${esc(t.text)}" <span class="muted small">· ${esc(t.fromName||'')}${t.subject ? ' · ' + esc(t.subject) : ''}</span></div>`).join('')}</div>`; }).catch(() => {}); $('#adm') && ($('#adm').onclick = renderAdmin);
   app.querySelectorAll('.bdg').forEach(b => b.onclick = () => toast(b.title));
