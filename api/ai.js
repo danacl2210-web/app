@@ -93,18 +93,29 @@ module.exports = async (req, res) => {
   };
   const tryGroq = async () => {
     const qk = process.env.GROQ_API_KEY; if(!qk) return {fail:null};
-    let last = null;
-    for(const model of (process.env.GROQ_MODEL ? [process.env.GROQ_MODEL] : ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'])){
+    const H = {'authorization':'Bearer ' + qk, 'content-type':'application/json'};
+    let last = null; const tried = new Set();
+    const one = async model => {
+      tried.add(model);
       try {
-        const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {method:'POST', headers:{'authorization':'Bearer ' + qk, 'content-type':'application/json'},
+        const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {method:'POST', headers:H,
           body:JSON.stringify({model, max_tokens:maxTokens, temperature:0.6, messages:[{role:'system', content:system}, ...msgs]}), signal:AbortSignal.timeout(12000)});
-        const j = await r.json();
-        const text = j.choices?.[0]?.message?.content?.trim();
+        const j = await r.json(); const text = j.choices?.[0]?.message?.content?.trim();
         if(r.ok && text) return {text};
-        last = {status:r.status, detail:`groq ${model}: ${j.error?.type || ''} ${j.error?.message || 'empty'}`.slice(0, 160)};
-        if(![400, 404, 429, 500, 503].includes(r.status)) break;
-      } catch(e){ last = {status:504, detail:`groq ${model} ${e?.name || 'error'}`}; }
+        return {status:r.status, detail:`groq ${model}: ${j.error?.type || ''} ${j.error?.message || 'empty'}`.slice(0, 160)};
+      } catch(e){ return {status:504, detail:`groq ${model} ${e?.name || 'error'}`}; }
+    };
+    // 1) דגמים מועדפים, 2) אם אינם זמינים: מגלים בעצמנו אילו דגמי צ'אט זמינים למפתח הזה
+    for(const m of (process.env.GROQ_MODEL ? [process.env.GROQ_MODEL] : ['llama-3.3-70b-versatile', 'openai/gpt-oss-20b', 'llama-3.1-8b-instant'])){
+      const x = await one(m); if(x.text) return x; last = x; if(![400, 403, 404, 429, 500, 503, 504].includes(x.status)) return {fail:last};
     }
+    try {
+      const lr = await fetch('https://api.groq.com/openai/v1/models', {headers:H, signal:AbortSignal.timeout(8000)}); const lj = await lr.json();
+      const ids = (lj.data || []).filter(m => m.active !== false).map(m => m.id).filter(id => !tried.has(id) && !/whisper|guard|tts|playai|orpheus|embed|distil-whisper/i.test(id));
+      const rank = id => /versatile|70b|120b/i.test(id) ? 0 : /llama|gpt-oss|qwen|kimi|gemma/i.test(id) ? 1 : 2;
+      for(const m of ids.sort((x, y) => rank(x) - rank(y)).slice(0, 3)){ const x = await one(m); if(x.text) return x; last = x; }
+      if(!ids.length) last = {status:last?.status || 404, detail:`groq: אין דגמים זמינים למפתח (${(lj.data || []).length}). ${last?.detail || ''}`.slice(0, 160)};
+    } catch(e){ last = {status:504, detail:'groq list ' + (e?.name || 'error')}; }
     return {fail:last};
   };
   // קודם Anthropic (אם יש מפתח), אחר כך Gemini (GEMINI_API_KEY), ואחר כך Groq (GROQ_API_KEY): מי שזמין ופנוי עונה
