@@ -684,7 +684,7 @@ function renderPractice(){
   const subs = practiceSubjects(); if(!pathSubject) pathSubject = subs[0];
   const done = me.progress?.[pathSubject] || 0, tc = todayCount(me);
   const off = [0,55,85,55,0,-55,-85,-55];
-  app.innerHTML = `<div class="page">
+  app.innerHTML = `<div class="page pp">
     <div class="head"><h2 style="font-size:26px">תרגול 🎮</h2>${pills()}</div>
     <div class="card gamecard"><div class="ring" style="--p:${Math.min(100,tc/DAILY_GOAL*100)}"><span>${tc}/${DAILY_GOAL}</span></div>
       <div class="grow"><b class="fred">יעד יומי</b><div class="small muted">${tc >= DAILY_GOAL ? 'השלמת היום! 🔥 הרצף נשמר' : 'שיעור אחד ביום שומר על הרצף 🔥'}</div>${weekStrip()}</div></div>
