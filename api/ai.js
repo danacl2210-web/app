@@ -66,20 +66,20 @@ module.exports = async (req, res) => {
   const tryGemini = async () => {
     const gk = process.env.GEMINI_API_KEY; if(!gk) return {fail:null};
     let last = null;
-    const run = async (model, think = true) => {
+    const run = async (model, think = true, ms = 9000) => { try {
       const gc = {maxOutputTokens:maxTokens}; if(think) gc.thinkingConfig = {thinkingBudget:0};   // בלי "חשיבה" ארוכה: מהיר יותר
       const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${gk}`, {method:'POST', headers:{'content-type':'application/json'},
-        body:JSON.stringify({systemInstruction:{parts:[{text:system}]}, contents:msgs.map(m => ({role:m.role === 'assistant' ? 'model' : 'user', parts:[{text:m.content}]})), generationConfig:gc}), signal:AbortSignal.timeout(20000)});
+        body:JSON.stringify({systemInstruction:{parts:[{text:system}]}, contents:msgs.map(m => ({role:m.role === 'assistant' ? 'model' : 'user', parts:[{text:m.content}]})), generationConfig:gc}), signal:AbortSignal.timeout(ms)});
       const j = await r.json();
       if(r.ok){ const text = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim(); return text ? {text} : {status:200, detail:`${model}: empty (${j.candidates?.[0]?.finishReason || j.promptFeedback?.blockReason || '?'})`}; }
-      if(r.status === 400 && think && /think/i.test(j.error?.message || '')) return run(model, false);
+      if(r.status === 400 && think && /think/i.test(j.error?.message || '')) return run(model, false, ms);
       return {status:r.status, detail:`gemini ${model}: ${j.error?.status || ''} ${j.error?.message || ''}`.slice(0, 160)};
-    };
+    } catch(e){ return {status:504, detail:`gemini ${model} ${e?.name || 'error'}: ${String(e?.message || e).slice(0, 70)}`}; } };
     try {
-      let tried = new Set(), list = process.env.GEMINI_MODEL ? [process.env.GEMINI_MODEL] : ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'], all404 = true;
+      let tried = new Set(), list = process.env.GEMINI_MODEL ? [process.env.GEMINI_MODEL] : ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-flash-latest'], all404 = true;
       for(const m of list){ tried.add(m); const x = await run(m); if(x.text) return x; last = x;
         if(x.status !== 404) all404 = false;
-        if(![404, 429, 500, 503].includes(x.status)) return {fail:last};          // שגיאה אחרת (מפתח, חסימה): אין טעם להמשיך
+        if(![404, 429, 500, 503, 504].includes(x.status)) return {fail:last};          // שגיאה אחרת (מפתח, חסימה): אין טעם להמשיך
         if(x.status === 503) await new Promise(r => setTimeout(r, 800)); }          // עומס זמני אצל Google: מנסים דגם אחר
       if(!all404) return {fail:last};
       // כל הדגמים שניסינו לא קיימים: מגלים אילו דגמים זמינים למפתח הזה ומנסים את החדשים ביותר מסוג flash
